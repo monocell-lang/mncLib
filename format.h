@@ -499,21 +499,28 @@ class Formatter;
 template <typename T>
 static constexpr bool has_formatter = requires (char const* params, ulong len, FormatBuffer& buffer, T const& value, FormatIR IR) {
     requires (same_type<decltype(Formatter<T>(params, len).format(buffer, value, IR)), Result<void, FormatError>>);
+    requires (is_trivially_copy_able<Formatter<T>>);
+    requires (is_trivially_move_able<Formatter<T>>);
+    requires (is_trivially_destructible<Formatter<T>>);
 };
 
 template <typename T>
 static constexpr bool has_default_formatter = requires (FormatBuffer& buffer, T const& value, FormatIR IR) {
     requires (same_type<decltype(Formatter<T>().format(buffer, value, IR)), Result<void, FormatError>>);
+    requires (is_default_constructible<T>);
+    requires (is_trivially_copy_able<Formatter<T>>);
+    requires (is_trivially_move_able<Formatter<T>>);
+    requires (is_trivially_destructible<Formatter<T>>);
 };
 
 // Syntax: .(mode: normal | debug | empty)
 template <typename T>
 requires (
-    is_pointer<T> && same_type<remove_const<remove_pointer<T>>, char>           ||
-    is_pointer<T> && same_type<remove_const<remove_pointer<T>>, signed char>    ||
-    is_pointer<T> && same_type<remove_const<remove_pointer<T>>, unsigned char>  ||
-    is_array<T> && same_type<remove_const<remove_array<T>>, char>               ||
-    is_array<T> && same_type<remove_const<remove_array<T>>, signed char>        ||
+    is_pointer<T> && same_type<remove_const<remove_pointer<T>>, char>          ||
+    is_pointer<T> && same_type<remove_const<remove_pointer<T>>, signed char>   ||
+    is_pointer<T> && same_type<remove_const<remove_pointer<T>>, unsigned char> ||
+    is_array<T> && same_type<remove_const<remove_array<T>>, char>              ||
+    is_array<T> && same_type<remove_const<remove_array<T>>, signed char>       ||
     is_array<T> && same_type<remove_const<remove_array<T>>, unsigned char>
 )
 class Formatter<T> {
@@ -1015,9 +1022,9 @@ public:
 // syntax: .(precision: uint | empty)(mode: g | f | e | empty)
 template <typename T>
 requires (
-    same_type<T, float>     ||
-    same_type<T, double>    ||
-    same_type<T, long double> 
+    same_type<T, float>       ||
+    same_type<T, double>      ||
+    same_type<T, long double>
 )
 class Formatter<T> {
 private:
@@ -1367,7 +1374,6 @@ public:
     }
 };
 
-// Syntax: .[ Format_Arg_T ; Format_Arg_E ]
 template <typename T>
 requires (
     same_type<T, char>          ||
@@ -1385,8 +1391,8 @@ public:
 
 template <typename T, typename E>
 requires (
-    (has_formatter<T> || same_type<T, void>) &&
-    (has_formatter<E> || same_type<E, void>)
+    (has_formatter<T> || has_default_formatter<T> || same_type<T, void>) &&
+    (has_formatter<E> || has_default_formatter<E> || same_type<E, void>)
 )
 class Formatter<Opt<T, E>> {
 private:
@@ -1415,7 +1421,10 @@ private:
         static void FORMATTER_OPT_Unbalanced_Square_Brackets() {}   
         static void FORMATTER_OPT_Expected_Semicolon_Between_Format_Arguments() {}  // no semicolon
         static void FORMATTER_OPT_Provided_More_Than_Two_Format_Arguments() {}  // too many semincolons
-        static void FORMATTER_OPT_Argument_For_Void_Must_Be_Empty() {}
+        static void FORMATTER_OPT_No_Format_Option_Available_For_True() {}
+        static void FORMATTER_OPT_Argument_For_True_Is_Void() {}
+        static void FORMATTER_OPT_No_Format_Option_Available_For_False() {}
+        static void FORMATTER_OPT_Argument_For_False_Is_Void() {}
     };
 
     struct helper
@@ -1630,24 +1639,38 @@ public:
             if (state != State::Finish)
                 __throw::FORMATTER_OPT_Expected_Semicolon_Between_Format_Arguments();
 
-            if constexpr (!same_type<T, void> && !same_type<E, void>)
+
+            if constexpr (!same_type<T, void> && has_formatter<T>)
             {
                 data.fmt_val = Formatter<T>(tstart, tlen);
-                data.fmt_err = Formatter<E>(fstart, flen);
             }
-            else if constexpr (!same_type<T, void> && same_type<E, void>)
+            else if constexpr (!same_type<T, void> && has_default_formatter<T>)
             {
                 if (!helper::is_empty_str(fstart, flen))
-                    __throw::FORMATTER_OPT_Argument_For_Void_Must_Be_Empty();
-
-                data.fmt_val = Formatter<T>(tstart, tlen);
+                    __throw::FORMATTER_OPT_No_Format_Option_Available_For_True();
+                data.fmt_val = Formatter<T>();
             }
-            else if (same_type<T, void> && !same_type<E, void>)
+            else if constexpr (same_type<T, void>)
             {
-                if (!helper::is_empty_str(tstart, tlen))
-                    __throw::FORMATTER_OPT_Argument_For_Void_Must_Be_Empty();
+                if (!helper::is_empty_str(fstart, flen))
+                    __throw::FORMATTER_OPT_Argument_For_True_Is_Void();
+            }
 
+
+            if constexpr (!same_type<E, void> && has_formatter<E>)
+            {
                 data.fmt_err = Formatter<E>(fstart, flen);
+            }
+            else if constexpr (!same_type<E, void> && has_default_formatter<E>)
+            {
+                if (!helper::is_empty_str(fstart, flen))
+                    __throw::FORMATTER_OPT_No_Format_Option_Available_For_False();
+                data.fmt_err = Formatter<E>();
+            }
+            else if constexpr (same_type<E, void>)
+            {
+                if (!helper::is_empty_str(fstart, flen))
+                    __throw::FORMATTER_OPT_Argument_For_False_Is_Void();
             }
         }
     }
@@ -1684,27 +1707,53 @@ public:
     }
 };
 
-template class Formatter<char const*>;
-template class Formatter<int>;
-template class Formatter<long long>;
-template class Formatter<unsigned int>;
-template class Formatter<unsigned long long>;
-template class Formatter<double>;
-template class Formatter<long double>;
-template class Formatter<void*>;
-template class Formatter<char>;
-template class Formatter<Result<int, char const*>>;
-template class Formatter<Result<void, float>>;
-template class Formatter<Option<int>>;
-
-
 #pragma endregion
 //////////////////////////////////////////////////////////////////////
 ////////////////////// class: FormatString ///////////////////////////
 //////////////////////////////////////////////////////////////////////
 #pragma region FormatString<Ts...>
 
+    
+    //////////////////////////////////////////////////
+    //////////////// SYNTAX: /////////////////////////
+    //////////////////////////////////////////////////
+
+    // {}
+    // {<30}
+    // {_30_}
+    // {<30_ @Carnelian $Green}
+    // {_20* @(179, 27, 27) $(0, 255, 0)}
+    // {>35. !ui @#FFCA03 $#002B56}
+
+    // WHERE:
+    // < > _ for align (left, right, center). Width and fill come after align (fill can be skipped)
+    // ! for style
+    // @ for text color
+    // $ for background color
+    // spaces dont matter
+
+    // SPECIAL:
+    // {self: <30_ @Carnelian $Green}
+    // => apply this formating style to the output string itself
+
+    // {@(179, 27, 27); .2}  => FormatIR::generate("@(179, 27, 27)"). Fomatter<float>(" .2")
+    // {self; .dec}          => use the same formatting style as the output string. Formatter<int>(" .dec")
+    // {self;   }            => use the same formatting style as the output string. Formatter<int>("   ")
+    // {self}                => use the same formatting style as the output string. Formatter<int>("")
+    // {; .dec}              => FormatIR::generate(""). Formatter<int>(" .dec")
+    // {;}                   => FormatIR::generate(""). Formatter<int>("")
+
+    // type formatters use the second param after ;
+    // {... ; .hex}
+    // {... ; .bin}
+    // {... ; .debug}
+    // {; .[.dec;]}  leaving first param empty is ok
+
+
 template <typename... Ts>
+requires (
+    (has_formatter<Ts> || has_default_formatter<Ts>) && ...
+)
 class TextFormatter {
 private:
 
@@ -1713,10 +1762,11 @@ private:
         ushort len;
     };
 
+/*
     struct Array {
     public:
 
-        int data[sizeof...(Ts) * 3 + 1];
+        int data[sizeof...(Ts) * 3];
 
     public:
 
@@ -1737,8 +1787,8 @@ private:
         int index = 0;
         Pair arr[sizeof...(Ts) * 3] = 
         {
-            Pair { index++, alignof(alter<Ts, FormatIR>) } ...,
             Pair { index++, alignof(alter<Ts, TextChunk>) } ...,
+            Pair { index++, alignof(alter<Ts, FormatIR>) } ...,
             Pair { index++, alignof(Formatter<Ts>) } ... 
         };
 
@@ -1771,114 +1821,384 @@ private:
     }
 
     static constexpr Array map = compute();
-    
+*/
+
     template <int index, typename T>
-    struct DataCell {
-        T data;
-    };
+    struct TupleCell { T data; };
 
     template <typename index_sequence>
-    struct Data;
+    struct Tuple;
 
     template <int... index>
-    struct Data<index_sequence<index...>>
-    : public DataCell<map[index], type_at<map[index], alter<Ts, FormatIR>..., alter<Ts, TextChunk>..., Formatter<Ts>...>>... {
-    public:
+    struct Tuple<index_sequence<index...>>: public TupleCell<index, Formatter<Ts>>... {};
 
-        template <int idx>
-        using TextChunk_DataCell = DataCell<map[idx], TextChunk>;
+private:
 
-        template <int idx>
-        using Formatter_DataCell = DataCell<map[idx], type_at<map[idx], Formatter<Ts>...>>;
+    struct __throw
+    {
+        static void TEXTFORMATTER_Cannot_Assign_Self_Format_More_Than_Once() {}
+        static void TEXTFORMATTER_Self_Format_May_Only_Be_Assigned_At_The_Start_Of_Format_String() {}
+        static void TEXTFORMATTER_Type_Format_Arguments_Are_Not_Allowed_In_Self_Format_Assignment() {}
+        static void TEXTFORMATTER_Only_Self_Is_Allowed_When_Inheriting_Text_Format() {}
+        static void TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace() {}
+        static void TEXTFORMATTER_Too_Many_Format_Arguments() {}
+        static void TEXTFORMATTER_Too_Few_Format_Arguments() {}
+        static void TEXTFORMATTER_Expect_Open_Brace_Before_Closing_Brace() {}
+        static void TEXTFORMATTER_Some_Types_Expect_No_Format_Options() {}
+    };
 
-        template <int idx>
-        using Formatter_at = type_at<map[idx], Formatter<Ts>...>;
-
-    public:
-
-        template <int idx>
-        TextChunk& get_chunk() {
-            return static_cast<TextChunk_DataCell<idx>&>(*this).data;
-        }
-
-        template <int idx>
-        TextChunk const& get_chunk() const {
-            return static_cast<TextChunk_DataCell<idx> const&>(*this).data;
-        }
-
-        template <int idx>
-        Formatter_at<idx>& get_formatter() {
-            return static_cast<Formatter_DataCell<idx>&>(*this).data;
-        }
-
-        template <int idx>
-        Formatter_at<idx> const& get_formatter() const {
-            return static_cast<Formatter_DataCell<idx> const&>(*this).data;
+    struct helper
+    {
+        template <typename T>
+        static consteval Formatter<T> make_formatter(char const* params, ulong len)
+        {
+            if constexpr (has_formatter<T>)
+            {
+                return Formatter<T>(params, len);
+            }
+            else
+            {
+                char const* p = params;
+                /// CHECK EMPTY
+                {
+                    while (p < params + len) 
+                    {
+                        if (*p != ' ')
+                            __throw::TEXTFORMATTER_Some_Types_Expect_No_Format_Options();
+                        p++;
+                    }
+                }
+                return Formatter<T>();
+            }
         }
     };
 
 private:
 
-    char const* text;
-    FormatIR IR_self;
-    Data<index_sequence_init<sizeof...(Ts) * 3>> data;
-    TextChunk tail;
-
-public:
+    char const* Format;
+    TextChunk textchunk[sizeof...(Ts) + 1];
+    FormatIR self_text_fmt;
+    FormatIR text_fmt[sizeof...(Ts)];
+    Tuple<index_sequence_init<sizeof...(Ts)>> type_fmt;
     
-    consteval TextFormatter(char const* Format, ulong len)
+private:
+    
+    template <int... _Index>
+    consteval TextFormatter(char const* Format, ulong len, index_sequence<_Index...>)
+    : Format(Format), textchunk{}
     {
-        ////////////////////////////////////////////////////////////
-        ////////////////////////////////////////////////////////////
+        #define once while (false)
+        #define Finite_State_Machine_Start while (true)
 
-        // {}
-        // {:<30}
-        // {:30_}
-        // {:_30_ @Carnelian $Green}
-        // {:_30_ @(179, 27, 27) $(0, 255, 0)}
-        // {:_30_ !c @#FFCA03 $#002B56}
+        struct FormatterArg {
+            char const* start;
+            ulong len;
+        };
 
-        // WHERE:
-        // first 3: align, with, fill (not mentioned => ' ')
-        // ! for style
-        // @ for text color
-        // $ for background color
-        // spaces dont matter
+        char const* p = Format;
+        char const* const end = Format + len;
 
-        // {self: _30_ !c @(179, 27, 27) $(0, 255, 0)} 
-        // => apply this formating style to the output string itself
+        //TextChunk textchunk[sizeof...(Ts) + 1];
+        FormatterArg self_text_fmt_arg = { "", 0 }; 
+        FormatterArg text_fmt_arg[sizeof...(Ts)] = {};
+        FormatterArg type_fmt_arg[sizeof...(Ts)] = {};
+        bool has_self_assignment = false;
+        int arg_idx = 0;
 
-        // other Formatters use the second param after ;
-        // {... ; .hex}
-        // {... ; .bin}
-        // {... ; .debug}
-        // {; .option1}  leaving first param empty is ok
+        enum class State {
+            CheckSelfAssignment,
+            CollectChunk,
+            CollectTextFmt,
+            CollectTypeFmt
+        } state = State::CheckSelfAssignment;
 
-        ////////////////////////////////////////////////////////////
-        ////////////////////////////////////////////////////////////
+        auto skip_spaces = [&]() {
+            while (p < end && *p == ' ') { p++; }
+        };
 
-        // TODO
+        Finite_State_Machine_Start
+        {
+            if (state == State::CheckSelfAssignment)
+            {
+                // default next state if nothing happens
+                state = State::CollectChunk;
+
+                do
+                {
+                    char const* const checkpoint1 = p;
+                    while (p < end && *p != '{') { p++; }
+                    
+                    if (!(p < end && *p == '{')) {
+                        p = checkpoint1;
+                        break;
+                    }
+
+                    char const* const checkpoint2 = p;
+                    p++;
+                    skip_spaces();
+
+                    if (!(end - p >= 4 && p[0] == 's' && p[1] == 'e' && p[2] == 'l' && p[3] == 'f')) {
+                        p = checkpoint1;
+                        break;
+                    }
+
+                    p += 4;
+                    skip_spaces();
+
+                    if (!(p < end && *p == ':')) {
+                        p = checkpoint1;
+                        break;
+                    }
+
+                    p++;
+                    char const* const checkpoint3 = p;
+                    while (p < end && *p != ';' && *p != '}') { p++; }
+
+                    if (*p == ';')
+                        __throw::TEXTFORMATTER_Type_Format_Arguments_Are_Not_Allowed_In_Self_Format_Assignment();
+
+                    if (*p != '}')
+                        __throw::TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace();
+
+                    if (has_self_assignment)
+                        __throw::TEXTFORMATTER_Cannot_Assign_Self_Format_More_Than_Once();
+
+                    if (checkpoint2 != Format)
+                        __throw::TEXTFORMATTER_Self_Format_May_Only_Be_Assigned_At_The_Start_Of_Format_String();
+                    
+                    self_text_fmt_arg = FormatterArg {
+                        .start = checkpoint3,
+                        .len = static_cast<ulong>(p - checkpoint3)
+                    };
+                    
+                    p++; // consume '}'
+                    has_self_assignment = true;
+                    state = State::CheckSelfAssignment;
+                } once;
+            }
+            else if (state == State::CollectChunk)
+            {
+                char const* const checkpoint = p;
+                while (p < end && *p != '{' && *p != '}') { p++; }
+
+                if (p < end && *p == '{')
+                {
+                    int arg_count = arg_idx;
+                    if (arg_count >= sizeof...(Ts))  // enough no more
+                        __throw::TEXTFORMATTER_Too_Many_Format_Arguments();
+
+                    textchunk[arg_idx] = TextChunk {
+                        .start = static_cast<ushort>(checkpoint - Format),
+                        .len = static_cast<ushort>(p - checkpoint)
+                    };
+
+                    p++;
+                    state = State::CollectTextFmt;
+                }
+                else if (p < end && *p == '}')
+                {
+                    __throw::TEXTFORMATTER_Expect_Open_Brace_Before_Closing_Brace();
+                }
+                else // end of format string
+                {
+                    int arg_count = arg_idx;
+                    if (arg_count < sizeof...(Ts))  // still lacking
+                        __throw::TEXTFORMATTER_Too_Few_Format_Arguments();
+
+                    textchunk[arg_idx] = TextChunk {
+                        .start = static_cast<ushort>(checkpoint - Format),
+                        .len = static_cast<ushort>(p - checkpoint)
+                    };
+                    break;
+                }
+            }
+            else if (state == State::CollectTextFmt)
+            {
+                enum class MiniState {
+                    CheckSelf,
+                    CheckAfterSelf,
+                    CollectArg
+                } ministate = MiniState::CheckSelf;
+
+                Finite_State_Machine_Start
+                {
+                    if (ministate == MiniState::CheckSelf)
+                    {
+                        char const* const checkpoint = p;
+                        skip_spaces();
+
+                        if (end - p >= 4 && p[0] == 's' && p[1] == 'e' && p[2] == 'l' && p[3] == 'f')
+                        {
+                            p += 4;
+                            ministate = MiniState::CheckAfterSelf;
+                        }
+                        else
+                        {
+                            p = checkpoint;
+                            ministate = MiniState::CollectArg;
+                        }
+                    }
+                    else if (ministate == MiniState::CheckAfterSelf)
+                    {
+                        skip_spaces();
+
+                        if (p < end && *p == ';')
+                        {
+                            text_fmt_arg[arg_idx] = self_text_fmt_arg;
+                            p++;  // consume ';'
+                            state = State::CollectTypeFmt;
+                        }
+                        else if (p < end && *p == '}')
+                        {
+                            text_fmt_arg[arg_idx] = self_text_fmt_arg;
+                            p++;  // consume '}'
+                            arg_idx++;
+                            state = State::CheckSelfAssignment;
+                        }
+                        else  // other chars or end of format string
+                        {
+                            __throw::TEXTFORMATTER_Only_Self_Is_Allowed_When_Inheriting_Text_Format();
+                        }
+                        break;
+                    }
+                    else if (ministate == MiniState::CollectArg)
+                    {
+                        char const* const checkpoint = p;
+                        
+                        while (p < end && *p != ';' && *p != '}') { p++; }
+
+                        if (p < end && *p == ';')
+                        {
+                            text_fmt_arg[arg_idx] = FormatterArg {
+                                .start = checkpoint,
+                                .len = static_cast<ulong>(p - checkpoint)
+                            };
+                            p++;  // consume '}'
+                            state = State::CollectTypeFmt;
+                        }
+                        else if (p < end && *p == '}')
+                        {
+                            text_fmt_arg[arg_idx] = FormatterArg {
+                                .start = checkpoint,
+                                .len = static_cast<ulong>(p - checkpoint)
+                            };
+                            p++;  // consume '}'
+                            arg_idx++;
+                            state = State::CheckSelfAssignment;
+                        }
+                        else // end of format string
+                        {
+                            __throw::TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace();
+                        }
+                        break;
+                    }
+                }
+            }
+            else if (state == State::CollectTypeFmt)
+            {
+                char const* checkpoint = p;
+
+                while (p < end && *p != '}') { p++; }
+
+                if (p < end && *p == '}')
+                {
+                    type_fmt_arg[arg_idx] = FormatterArg {
+                        .start = checkpoint,
+                        .len = static_cast<ulong>(p - checkpoint)
+                    };
+                    p++;  // consume '}'
+                    arg_idx++;
+                    state = State::CheckSelfAssignment;
+                }
+                else // other chars or end of format string
+                {
+                    __throw::TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace();
+                }
+            }
+        }
+
+        // assign values
+        {
+            self_text_fmt = FormatIR::generate(self_text_fmt_arg.start, self_text_fmt_arg.len);
+
+            for (int i = 0; i < sizeof...(Ts); i++) {
+                text_fmt[i] = FormatIR::generate(text_fmt_arg[i].start, text_fmt_arg[i].len);
+            }
+
+            type_fmt = { 
+                helper::template make_formatter<type_at<_Index, Ts...>>(
+                    type_fmt_arg[_Index].start, 
+                    type_fmt_arg[_Index].len
+                ) ... 
+            };
+        }
+
+        #undef once
+        #undef Finite_State_Machine_Start
     }
 
+private:
+
+    template <int idx>
+    using Cell = TupleCell<idx, type_at<idx, Formatter<Ts>...>>;
+
+    template <int... _Index>
+    Result<void, FormatError> format(index_sequence<_Index...>, FormatBuffer& buffer, Ts const&... values) const
+    {
+        Result<void, FormatError> res = { True{} };
+        (
+            (res = res.and_then
+            (
+                [&]() -> Result<void, FormatError> 
+                {
+                    auto res = buffer.write(Format + textchunk[_Index].start, textchunk[_Index].len, self_text_fmt);
+                    if (res == False{}) return res;
+                    return static_cast<Cell<_Index> const&>(type_fmt).data.format(buffer, values, text_fmt[_Index]);
+                }
+            )), ...
+        );
+
+        if (res == False{}) return res;
+        return buffer.write(Format + textchunk[sizeof...(_Index)].start, textchunk[sizeof...(_Index)].len, self_text_fmt);
+    }
+
+public:
+
+    consteval TextFormatter(char const* Format, ulong len)
+    : TextFormatter(Format, len, index_sequence_init<sizeof...(Ts)>{}) {}
+
+    template <ulong N>
+    consteval TextFormatter(char const (&Format)[N]): TextFormatter(Format, N - 1, index_sequence_init<sizeof...(Ts)>{}) {}
+    
     Result<void, FormatError> format(FormatBuffer& buffer, Ts const&... values) const
     {
-        // TODO
+        return format(index_sequence_init<sizeof...(Ts)>{}, buffer, values...);
     }
 };
 
 template <typename... Ts>
 using FormatString = TextFormatter<no_type_deduction<Ts>...>;
 
-
 template <typename... Ts>
-void println(FormatString<Ts...> Format, Ts const&... args) {
-    
+Result<void, FormatError> print(FormatString<Ts...> Format, Ts const&... values)
+{
+    FormatBuffer buffer;
+    auto res = Format.format(buffer, values...);
+    if (res == False{}) return res;
+    std::printf("%s", buffer.data());
+    //std::fwrite(buffer.data(), 1, buffer.size(), stdout);
+    return { True{} };
 }
 
-template class TextFormatter<>::Data<index_sequence_init<0>>;
-template class TextFormatter<int, int, double, double, char>;
-template class TextFormatter<int, int, double, double, char>::Data<index_sequence_init<15>>;
-
+template <typename... Ts>
+Result<void, FormatError> println(FormatString<Ts...> Format, Ts const&... values) // ME PUSH CHARS FASSSST! 🦍⚡
+{
+    FormatBuffer buffer;
+    auto res = Format.format(buffer, values...);
+    if (res == False{}) return res;
+    std::printf("%s\n", buffer.data());
+    return { True{} };
+}
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////

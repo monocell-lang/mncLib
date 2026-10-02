@@ -1,14 +1,5 @@
 #pragma once
 
-
-
-
-
-
-
-
-
-
 #define _MNC_BEGIN namespace mnc {
 #define _MNC_END }
 

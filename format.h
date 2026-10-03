@@ -1757,12 +1757,6 @@ requires (
 class TextFormatter {
 private:
 
-    struct TextChunk {
-        ushort start;
-        ushort len;
-    };
-
-/*
     struct Array {
     public:
 
@@ -1774,9 +1768,6 @@ private:
         constexpr int const& operator[](int index) const { return data[index]; }
     };
 
-    template <typename Ty, typename Alt>
-    using alter = Alt;
-
     static constexpr Array compute()
     {
         struct Pair { 
@@ -1785,18 +1776,13 @@ private:
         };
 
         int index = 0;
-        Pair arr[sizeof...(Ts) * 3] = 
-        {
-            Pair { index++, alignof(alter<Ts, TextChunk>) } ...,
-            Pair { index++, alignof(alter<Ts, FormatIR>) } ...,
-            Pair { index++, alignof(Formatter<Ts>) } ... 
-        };
+        Pair arr[sizeof...(Ts)] = { Pair { index++, alignof(Formatter<Ts>) } ... };
 
         while (true)
         {
             bool swapped = false;
             
-            for (int i = 0; i + 1 < sizeof...(Ts) * 3; i++)
+            for (int i = 0; i + 1 < sizeof...(Ts); i++)
             {
                 if (arr[i].align < arr[i + 1].align)
                 {
@@ -1812,7 +1798,7 @@ private:
         }
 
         Array result = {};
-        for (int i = 0; i < sizeof...(Ts) * 3; i++)
+        for (int i = 0; i < sizeof...(Ts); i++)
         {
             result[i] = arr[i].index;
         }
@@ -1821,16 +1807,15 @@ private:
     }
 
     static constexpr Array map = compute();
-*/
 
-    template <int index, typename T>
+    template <int _Index, typename T>
     struct TupleCell { T data; };
 
     template <typename index_sequence>
     struct Tuple;
 
-    template <int... index>
-    struct Tuple<index_sequence<index...>>: public TupleCell<index, Formatter<Ts>>... {};
+    template <int... _Index>
+    struct Tuple<index_sequence<_Index...>>: public TupleCell<map[_Index], Formatter<Ts>>... {};
 
 private:
 
@@ -1871,6 +1856,11 @@ private:
                 return Formatter<T>();
             }
         }
+    };
+
+    struct TextChunk {
+        ushort start;
+        ushort len;
     };
 
 private:
@@ -2139,8 +2129,8 @@ private:
 
 private:
 
-    template <int idx>
-    using Cell = TupleCell<idx, type_at<idx, Formatter<Ts>...>>;
+    template <int _Index>
+    using Cell = TupleCell<map[_Index], type_at<_Index, Formatter<Ts>...>>;
 
     template <int... _Index>
     Result<void, FormatError> format(index_sequence<_Index...>, FormatBuffer& buffer, Ts const&... values) const
@@ -2185,8 +2175,7 @@ Result<void, FormatError> print(FormatString<Ts...> Format, Ts const&... values)
     FormatBuffer buffer;
     auto res = Format.format(buffer, values...);
     if (res == False{}) return res;
-    std::printf("%s", buffer.data());
-    //std::fwrite(buffer.data(), 1, buffer.size(), stdout);
+    std::fwrite(buffer.data(), 1, buffer.size(), stdout);
     return { True{} };
 }
 
@@ -2196,7 +2185,9 @@ Result<void, FormatError> println(FormatString<Ts...> Format, Ts const&... value
     FormatBuffer buffer;
     auto res = Format.format(buffer, values...);
     if (res == False{}) return res;
-    std::printf("%s\n", buffer.data());
+    res = buffer.write("\n");
+    if (res == False{}) return res;
+    std::fwrite(buffer.data(), 1, buffer.size(), stdout);
     return { True{} };
 }
 

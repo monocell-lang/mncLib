@@ -66,7 +66,7 @@
 //
 //   - Example:
 //        "{self: >15. $gray}  hello world, peeps!"
-//        => right-aligned + width 15 + '.' filled + gray background
+//        => right-aligned + width 15 + '.' padding + gray background
 //
 // 3. 'self' STYLE INHERITANCE
 // ----------------------------------------------------------------------------
@@ -84,7 +84,7 @@
 //        "{self; .hex}"   =>  Inherits 'self' text format + uses '.hex' type format
 //
 //      Invalid Examples:
-//        "{self @Red}"     // ERROR: Merging other rules with 'self' is forbidden.
+//        "{self @Red}"    // ERROR: Merging other rules with 'self' is forbidden.
 //
 // 4. TEXT FORMAT SYNTAX SPECIFICATION
 // ----------------------------------------------------------------------------
@@ -101,8 +101,8 @@
 //
 //       Examples: 
 //         <30   => Left   + width 30 + no fill
-//         _20*  => Center + width 20 + fill with '*'
-//         >15a  => Right  + width 15 + fill with 'a'
+//         _20*  => Center + width 20 + '*' padding
+//         >15a  => Right  + width 15 + 'a' padding
 //
 //   [2] TEXT STYLES (STACKABLE):
 //       Syntax: ![r|b|i|u|s|d]...
@@ -136,6 +136,25 @@
 //       - 6-Digit Hex : $#RRGGBB / $#rrggbb
 //
 //       Examples: nah, see TEXT COLOR!
+//
+// 5. TYPE FORMATTERS (EXACT TYPE MATCHING, NO CV-REF)
+// ----------------------------------------------------------------------------
+//   - Strings (char const*, char[N], char const[N]):
+//     Syntax: (empty) | .normal | .debug
+//
+//   - Integers (short, int, long, long long - signed/unsigned):
+//     Syntax: (empty) | .dec | .bin | .hex | .Hex | .oct
+//
+//   - Floating Point (float, double, long double):
+//     Syntax: .(empty | precision)(empty | g | f | e)
+//
+//     Examples:
+//       .g    =>   precision 2 (default) + general float
+//       .06   =>   precision 6 + general float (default)
+//       .10e  =>   precision 15 + scientific float
+//
+//   - Result / Optional (Opt<T, E>):
+//     Syntax: .[(Format For T) ; (Format For E)] (extracts format options recursively)
 //
 // ================================================================================================
 // EXAMPLES & SYNTAX CHEAT SHEET
@@ -662,7 +681,7 @@ static constexpr bool has_default_formatter = requires (FormatBuffer& buffer, T 
     requires (is_trivially_destructible<Formatter<T>>);
 };
 
-// Syntax: .(mode: normal | debug | empty)
+// Syntax: (empty) | .normal | .debug
 template <typename T>
 requires (
     is_pointer<T> && same_type<remove_const<remove_pointer<T>>, char>          ||
@@ -887,7 +906,7 @@ public:
     }
 };
 
-// Syntax: .(mode: dec | bin | hex | Hex | oc | empty)
+// Syntax: (empty) | .dec | .bin | .hex | .Hex | .oct
 template <typename T>
 requires (
     same_type<T, signed short>       ||
@@ -1168,7 +1187,7 @@ public:
 };
 
 
-// syntax: .(precision: uint | empty)(mode: g | f | e | empty)
+// syntax: .(empty | precision)(empty | g | f | e)
 template <typename T>
 requires (
     same_type<T, float>       ||
@@ -1538,6 +1557,7 @@ public:
     }
 };
 
+// Syntax: .[(Format For T) ; (Format For E)]
 template <typename T, typename E>
 requires (
     (has_formatter<T> || has_default_formatter<T> || same_type<T, void>) &&

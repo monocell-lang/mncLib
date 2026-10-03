@@ -8,6 +8,141 @@
 
 
 
+
+
+// ================================================================================================
+//               MONOCELL TEXT FORMATTER SPECIFICATION (C++20 or latter)
+// ================================================================================================
+//
+// 1. PLACEHOLDERS
+// ----------------------------------------------------------------------------
+// Every format placeholder follows a single, unified dual-section structure
+//     
+//     { [Text Format Portion] ; [Type Format Portion] }
+//
+//   a) Text Format Portion:
+//      - Extracted from right after '{' up to the first ';' or closing '}'.
+//      - Passed verbatim to "consteval FormatIR::generate(char const*, ulong)".
+//      - Computes Alignment, Style, Text Color, and Background Color.
+//      - Applicable to ALL types (Generic Format IR). Cannot be customized per type.
+//      - If Omitted or left blank, defaults to FormatIR::generate("", 0).
+//
+//   b) Type Format Portion:
+//      - Extracted after the first ';' up to the closing '}'.
+//      - Syntax is free-form per type, BUT must NOT contain '{' or '}'.
+//      - May contain inner semicolons ';'.
+//
+//   - Escaping rules: 
+//       Curly braces '{' and '}' are STRICTLY reserved for format argument placeholders.
+//       There is NO escape syntax for braces (e.g., '{{' or '}}' are NOT supported).
+//
+// 2. THE 'self' GLOBAL THEME ASSIGNMENT
+// ----------------------------------------------------------------------------
+// 'self' represents the formatting style applied to the entire format string 
+// ITSELF (excluding the contents of argument placeholders '{}')
+//
+//     { self : [Text Format Portion] }
+//
+//   - Placement Constraints:
+//       Must be placed EXACTLY at the beginning of the format string (Index 0).
+//       NO leading spaces or characters are allowed before '{self: ...}'.
+//
+//   - Default Fallback:
+//       If '{self: ...}' ommited or left blank, it defaults to FormatIR::generate("", 0).
+//
+//   - Example:
+//       "{self: >15. $gray}  hello world! ===>"
+//       (right-aligned, width 15, '.' filled and gray background)
+//
+// 3. 'self' STYLE INHERITANCE
+// ----------------------------------------------------------------------------
+// Any argument placeholder '{}' can inherit the exact Text Format IR of 'self' 
+// (whether 'self' was explicitly defined or defaulted)
+//
+//     { self ; [Type Format Portion] }
+//
+//   - Placement Constraints:
+//       Spaces around 'self' are ignored, but the word 'self' itself must be contiguous.
+//       NO additional text formatting parameters can be merged with 'self'.
+//
+//   - Valid Examples:
+//       "{self: $orange}[Monocell Format Lib]\n used in {self} projects!"
+//       "{self; .hex}"    // Inherits 'self' text format + uses '.hex' type format
+//
+//   - Invalid Examples:
+//       "{self @Red}"     // ERROR: Merging other rules with 'self' is forbidden.
+//
+// 4. TEXT FORMAT SYNTAX SPECIFICATION
+// ----------------------------------------------------------------------------
+// Composed of up to 4 orthogonal format specifiers in ANY order, separated 
+// by optional whitespace
+//
+//   [1] ALIGNMENT & PADDING:
+//       Syntax: [< | > | _][width][optional: fill_char]
+//       - '<' => Left alignment
+//       - '>' => Right alignment
+//       - '_' => Center alignment
+//       - width: Positive integer specifying minimum field width
+//       - fill_char: Single character used for padding (defaults to space ' ')
+//
+//       Examples: 
+//         <30   => Left   + width 30 + no fill
+//         _20*  => Center + width 20 + fill with '*'
+//         >15a  => Right  + width 15 + fill with 'a'
+//
+//   [2] TEXT STYLES (STACKABLE):
+//       Syntax: ![r|b|i|u|s|d]...
+//       - '!' prefix followed by stackable modifier flags:
+//           - 'r' => Regular
+//           - 'b' => Bold
+//           - 'i' => Italic
+//           - 'u' => Underline
+//           - 's' => Strikethrough
+//           - 'd' => Dim
+//
+//       Examples: 
+//         !bi   => Bold + Italic
+//         !isu  => Italic + Strikethrough + Underline
+//
+//   [3] TEXT COLOR (FOREGROUND):
+//       Syntax: @[color_spec]
+//       - Color Name  : @Name / @name         
+//       - RGB Tuple   : @(red, green, blue) (values: 0-255)
+//       - 6-Digit Hex : @#RRGGBB / @#rrggbb
+//
+//       Examples: 
+//         Color Names: @Carnelian, @Green, @gray
+//         RGB Tuples: @(220, 20, 60) (Crimson), @(220, 203, 163) (Pearl), @(255, 105, 180) (Pink)
+//         6-Digit Hex: @#7D5048, @#ff7f34
+//
+//   [4] BACKGROUND COLOR:
+//       Syntax: $[color_spec]
+//       - Color Name  : $Name / $name
+//       - RGB Tuple   : $(red, green, blue) (values: 0-255)
+//       - 6-Digit Hex : $#RRGGBB / $#rrggbb
+//
+//       Examples: nah, see TEXT COLOR!
+//
+// ================================================================================================
+// EXAMPLES & SYNTAX CHEAT SHEET
+// ================================================================================================
+//
+//   {}                                   =>  Default text format, default type format
+//   {<30}                                =>  Left align width 30
+//   {_30_}                               =>  Center align width 30, fill with '_'
+//   {<30_ @Carnelian $Green}             =>  Left align, fill '_', Text color, BG color
+//   {_20* @(179, 27, 27) $(0, 255, 0)}   =>  Center align, fill '*', RGB colors
+//   {>35. !ui @#FFCA03 $#002B56}         =>  Right align, Underline+Italic, Hex colors
+//
+//   {self: <30_ @Carnelian $Green}       =>  Assign global format to outer string
+//   {self}                               =>  Inherit global 'self' text format
+//   {self; .dec}                         =>  Inherit 'self' text format + '.dec' type format
+//   {; .hex}                             =>  Default text format + '.hex' type format
+//
+// ================================================================================================
+
+
+
 #define _MNC_BEGIN namespace mnc {
 #define _MNC_END }
 
@@ -1713,11 +1848,6 @@ public:
 //////////////////////////////////////////////////////////////////////
 #pragma region FormatString<Ts...>
 
-    
-    //////////////////////////////////////////////////
-    //////////////// SYNTAX: /////////////////////////
-    //////////////////////////////////////////////////
-
     // {}
     // {<30}
     // {_30_}
@@ -1751,16 +1881,14 @@ public:
 
 
 template <typename... Ts>
-requires (
-    (has_formatter<Ts> || has_default_formatter<Ts>) && ...
-)
+requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
 class TextFormatter {
 private:
 
     struct Array {
     public:
 
-        int data[sizeof...(Ts) * 3];
+        int data[sizeof...(Ts)];
 
     public:
 
@@ -1828,7 +1956,7 @@ private:
         static void TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace() {}
         static void TEXTFORMATTER_Too_Many_Format_Arguments() {}
         static void TEXTFORMATTER_Too_Few_Format_Arguments() {}
-        static void TEXTFORMATTER_Expect_Open_Brace_Before_Closing_Brace() {}
+        static void TEXTFORMATTER_Open_Braces_And_Closing_Braces_Are_Reserved_For_Placeholders_Only() {}
         static void TEXTFORMATTER_Some_Types_Expect_No_Format_Options() {}
     };
 
@@ -1987,7 +2115,7 @@ private:
                 }
                 else if (p < end && *p == '}')
                 {
-                    __throw::TEXTFORMATTER_Expect_Open_Brace_Before_Closing_Brace();
+                    __throw::TEXTFORMATTER_Open_Braces_And_Closing_Braces_Are_Reserved_For_Placeholders_Only();
                 }
                 else // end of format string
                 {
@@ -2088,9 +2216,13 @@ private:
             {
                 char const* checkpoint = p;
 
-                while (p < end && *p != '}') { p++; }
+                while (p < end && *p != '{' && *p != '}') { p++; }
 
-                if (p < end && *p == '}')
+                if (p < end && *p == '{')
+                {
+                    __throw::TEXTFORMATTER_Open_Braces_And_Closing_Braces_Are_Reserved_For_Placeholders_Only();
+                }
+                else if (p < end && *p == '}')
                 {
                     type_fmt_arg[arg_idx] = FormatterArg {
                         .start = checkpoint,
@@ -2100,7 +2232,7 @@ private:
                     arg_idx++;
                     state = State::CheckSelfAssignment;
                 }
-                else // other chars or end of format string
+                else // end of format string
                 {
                     __throw::TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace();
                 }
@@ -2158,11 +2290,19 @@ public:
     : TextFormatter(Format, len, index_sequence_init<sizeof...(Ts)>{}) {}
 
     template <ulong N>
-    consteval TextFormatter(char const (&Format)[N]): TextFormatter(Format, N - 1, index_sequence_init<sizeof...(Ts)>{}) {}
+    consteval TextFormatter(char const (&Format)[N])
+    : TextFormatter(Format, N - 1, index_sequence_init<sizeof...(Ts)>{}) {}
     
-    Result<void, FormatError> format(FormatBuffer& buffer, Ts const&... values) const
-    {
+    Result<void, FormatError> format(FormatBuffer& buffer, Ts const&... values) const {
         return format(index_sequence_init<sizeof...(Ts)>{}, buffer, values...);
+    }
+
+    constexpr char const* data() const {
+        return Format;
+    }
+
+    constexpr ushort size() const {
+        return textchunk[sizeof...(Ts)].len;
     }
 };
 
@@ -2170,6 +2310,7 @@ template <typename... Ts>
 using FormatString = TextFormatter<no_type_deduction<Ts>...>;
 
 template <typename... Ts>
+requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
 Result<void, FormatError> print(FormatString<Ts...> Format, Ts const&... values)
 {
     FormatBuffer buffer;
@@ -2180,6 +2321,7 @@ Result<void, FormatError> print(FormatString<Ts...> Format, Ts const&... values)
 }
 
 template <typename... Ts>
+requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
 Result<void, FormatError> println(FormatString<Ts...> Format, Ts const&... values) // ME PUSH CHARS FASSSST! 🦍⚡
 {
     FormatBuffer buffer;

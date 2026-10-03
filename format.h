@@ -32,9 +32,23 @@
 //      - Syntax is free-form per type, BUT must NOT contain '{' or '}'.
 //      - May contain inner semicolons ';'.
 //
-//   - Escaping rules: 
-//       Curly braces '{' and '}' are STRICTLY reserved for format argument placeholders.
-//       There is NO escape syntax for braces (e.g., '{{' or '}}' are NOT supported).
+//   c) Arity & Argument Matching Rules:
+//      - The number of argument placeholders '{}' MUST EXACTLY MATCH the number 
+//        of types provided in the variadic parameter pack (`Ts...`).
+//      - '{self: ...}' is a Global Theme Assignment and is EXCLUDED from argument counting.
+//      - Mismatched placeholder count triggers a Compile-time Error via `__throw`.
+//
+//      Println examples;
+//        println("{self: $red} {} and {}", 10, 20);  // OK: 2 placeholders, 2 args
+//        println("{self: $red} {} and {}", 10);      // ERROR: Argument count mismatch!
+//
+//      TextFormatter (FormatString) examples:
+//        TextFormatter<int, int>("{self: $red} {} and {}")  // OK: 2 placeholders, 2 args
+//        TextFormatter<int, int>("{self: $red} {} ")        // ERROR: Argument count mismatch!
+//
+//   d) Escaping Rules: 
+//      - Curly braces '{' and '}' are STRICTLY reserved for format argument placeholders.
+//      - There is NO escape syntax for braces (e.g., '{{' or '}}' are NOT supported).
 //
 // 2. THE 'self' GLOBAL THEME ASSIGNMENT
 // ----------------------------------------------------------------------------
@@ -43,16 +57,16 @@
 //
 //     { self : [Text Format Portion] }
 //
-//   - Placement Constraints:
-//       Must be placed EXACTLY at the beginning of the format string (Index 0).
-//       NO leading spaces or characters are allowed before '{self: ...}'.
+//   a) Placement Constraints:
+//      - Must be placed EXACTLY at the beginning of the format string (Index 0).
+//      - NO leading spaces or characters are allowed before '{self: ...}'.
 //
-//   - Default Fallback:
-//       If '{self: ...}' ommited or left blank, it defaults to FormatIR::generate("", 0).
+//   b) Default Fallback:
+//      - If '{self: ...}' ommited or left blank, it defaults to FormatIR::generate("", 0).
 //
 //   - Example:
-//       "{self: >15. $gray}  hello world! ===>"
-//       (right-aligned, width 15, '.' filled and gray background)
+//        "{self: >15. $gray}  hello world, peeps!"
+//        => right-aligned + width 15 + '.' filled + gray background
 //
 // 3. 'self' STYLE INHERITANCE
 // ----------------------------------------------------------------------------
@@ -61,16 +75,16 @@
 //
 //     { self ; [Type Format Portion] }
 //
-//   - Placement Constraints:
-//       Spaces around 'self' are ignored, but the word 'self' itself must be contiguous.
-//       NO additional text formatting parameters can be merged with 'self'.
+//   a) Placement Constraints:
+//      - Spaces around 'self' are ignored, but the word 'self' itself must be contiguous.
+//      - NO additional text formatting parameters can be merged with 'self'.
 //
-//   - Valid Examples:
-//       "{self: $orange}[Monocell Format Lib]\n used in {self} projects!"
-//       "{self; .hex}"    // Inherits 'self' text format + uses '.hex' type format
+//      Valid Examples:
+//        "{self: $orange}[Monocell Format Lib]\n used in {self} projects!"
+//        "{self; .hex}"   =>  Inherits 'self' text format + uses '.hex' type format
 //
-//   - Invalid Examples:
-//       "{self @Red}"     // ERROR: Merging other rules with 'self' is forbidden.
+//      Invalid Examples:
+//        "{self @Red}"     // ERROR: Merging other rules with 'self' is forbidden.
 //
 // 4. TEXT FORMAT SYNTAX SPECIFICATION
 // ----------------------------------------------------------------------------

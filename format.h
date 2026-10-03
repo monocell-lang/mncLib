@@ -143,7 +143,7 @@
 //     Syntax: (empty) | .normal | .debug
 //
 //   - Integers (short, int, long, long long - signed/unsigned):
-//     Syntax: (empty) | .dec | .bin | .hex | .Hex | .oct
+//     Syntax: (empty) | .dec | .+dec | .bin | .hex | .Hex | .oct
 //
 //   - Floating Point (float, double, long double):
 //     Syntax: .(empty | precision)(empty | g | f | e)
@@ -153,7 +153,7 @@
 //       .06   =>   precision 6 + general float (default)
 //       .10e  =>   precision 15 + scientific float
 //
-//   - Result / Optional (Opt<T, E>):
+//   - Optional / Result (Opt<T, E>):
 //     Syntax: .[(Format For T) ; (Format For E)] (extracts format options recursively)
 //
 // ================================================================================================
@@ -675,7 +675,6 @@ static constexpr bool has_formatter = requires (char const* params, ulong len, F
 template <typename T>
 static constexpr bool has_default_formatter = requires (FormatBuffer& buffer, T const& value, FormatIR IR) {
     requires (same_type<decltype(Formatter<T>().format(buffer, value, IR)), Result<void, FormatError>>);
-    requires (is_default_constructible<T>);
     requires (is_trivially_copy_able<Formatter<T>>);
     requires (is_trivially_move_able<Formatter<T>>);
     requires (is_trivially_destructible<Formatter<T>>);
@@ -1001,7 +1000,8 @@ private:
     };
 
     enum class Mode: byte { 
-        Decimal, 
+        Decimal,
+        SignedDecimal,
         Binary, 
         Hexadecimal, 
         CapHexadecimal, 
@@ -1070,11 +1070,12 @@ public:
                 start++;
             };
 
-            if (helper::same_str(sstart, slen, "dec"))      mode = Mode::Decimal;
-            else if (helper::same_str(sstart, slen, "bin")) mode = Mode::Binary;
-            else if (helper::same_str(sstart, slen, "hex")) mode = Mode::Hexadecimal;
-            else if (helper::same_str(sstart, slen, "Hex")) mode = Mode::CapHexadecimal;
-            else if (helper::same_str(sstart, slen, "oct")) mode = Mode::Octal;
+            if (helper::same_str(sstart, slen, "dec"))       mode = Mode::Decimal;
+            else if (helper::same_str(sstart, slen, "+dec")) mode = Mode::SignedDecimal;
+            else if (helper::same_str(sstart, slen, "bin"))  mode = Mode::Binary;
+            else if (helper::same_str(sstart, slen, "hex"))  mode = Mode::Hexadecimal;
+            else if (helper::same_str(sstart, slen, "Hex"))  mode = Mode::CapHexadecimal;
+            else if (helper::same_str(sstart, slen, "oct"))  mode = Mode::Octal;
             else __throw::FORMATTER_INT_Invalid_Format_Parameter_Syntax();
         }
     }
@@ -1087,6 +1088,7 @@ public:
         switch (mode)
         {
             case Mode::Decimal:
+            case Mode::SignedDecimal:
             {
                 if (value == 0)
                     return buffer.write("0", IR);
@@ -1113,9 +1115,23 @@ public:
                     val /= 10;
                     buffer_temp[--i] = '0' + (old - val * 10);
                 }
-                if constexpr (is_signed_int<T>) if (is_negative)
+                if constexpr (is_signed_int<T>) 
                 {
-                    buffer_temp[--i] = '-';
+                    if (is_negative)
+                    {
+                        buffer_temp[--i] = '-';
+                    }
+                    else if (mode == Mode::SignedDecimal)
+                    {
+                        buffer_temp[--i] = '+';
+                    }
+                }
+                else
+                {
+                    if (mode == Mode::SignedDecimal)
+                    {
+                        buffer_temp[--i] = '+';
+                    }
                 }
 
                 return buffer.write(buffer_temp + i, 30 - i, IR);
@@ -1553,7 +1569,7 @@ public:
 
     Result<void, FormatError> format(FormatBuffer& buffer, T value, FormatIR IR = FormatIR {}) const
     {
-        return buffer.write(&value, 1, IR);
+        return buffer.write(value, 1, IR);
     }
 };
 
@@ -1919,6 +1935,8 @@ requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
 class TextFormatter {
 private:
 
+    static constexpr bool SORT_ALIGNMENT = false;
+
     struct Array {
     public:
 
@@ -1940,23 +1958,26 @@ private:
         int index = 0;
         Pair arr[sizeof...(Ts)] = { Pair { index++, alignof(Formatter<Ts>) } ... };
 
-        while (true)
+        if constexpr (SORT_ALIGNMENT)
         {
-            bool swapped = false;
-            
-            for (int i = 0; i + 1 < sizeof...(Ts); i++)
+            while (true)
             {
-                if (arr[i].align < arr[i + 1].align)
+                bool swapped = false;
+                
+                for (int i = 0; i + 1 < sizeof...(Ts); i++)
                 {
-                    Pair temp = arr[i];
-                    arr[i] = arr[i + 1];
-                    arr[i + 1] = temp;
-                    swapped = true;
+                    if (arr[i].align < arr[i + 1].align)
+                    {
+                        Pair temp = arr[i];
+                        arr[i] = arr[i + 1];
+                        arr[i + 1] = temp;
+                        swapped = true;
+                    }
                 }
-            }
 
-            if (!swapped)
-                break;
+                if (!swapped)
+                    break;
+            }
         }
 
         Array result = {};

@@ -11,85 +11,86 @@
 
 
 // ================================================================================================
-//               MONOCELL TEXT FORMATTER SPECIFICATION (C++20 or latter)
+//                MONOCELL TEXT FORMATTER SPECIFICATION (C++20 or later) - v3.0
 // ================================================================================================
 //
-// 1. PLACEHOLDERS
+// 1. PLACEHOLDERS & DUAL-SECTION SYNTAX
 // ----------------------------------------------------------------------------
-// Every format placeholder follows a single, unified dual-section structure
+// Every format placeholder inside the format string follows a unified dual-section structure:
 //     
 //     { [Text Format Portion] ; [Type Format Portion] }
 //
 //   a) Text Format Portion:
-//      - Extracted from right after '{' up to the first ';' or closing '}'.
-//      - Passed verbatim to "consteval FormatIR::generate(char const*, ulong)".
-//      - Computes Alignment, Style, Text Color, and Background Color.
-//      - Applicable to ALL types (Generic Format IR). Cannot be customized per type.
-//      - If Omitted or left blank, defaults to FormatIR::generate("", 0).
+//      - Extracted right after '{' up to the first ';' or closing '}'.
+//      - Evaluated at compile-time via "consteval FormatIR::generate(char const*, ulong)".
+//      - Computes Alignment/Padding, Styles (Bold, Italic, etc.), Foreground, and Background colors.
+//      - Applicable to ALL types.
+//      - If omitted or left blank, defaults to FormatIR::generate("", 0).
 //
 //   b) Type Format Portion:
 //      - Extracted after the first ';' up to the closing '}'.
-//      - Syntax is free-form per type, BUT must NOT contain '{' or '}'.
-//      - May contain inner semicolons ';'.
+//      - Free-form syntax per type, BUT must NOT contain unescaped '{' or '}'.
+//      - May contain inner semicolons ';' (e.g., for recursive type formatting like Opt<T, E>).
 //
 //   c) Arity & Argument Matching Rules:
-//      - The number of argument placeholders '{}' MUST EXACTLY MATCH the number 
-//        of types provided in the variadic parameter pack (`Ts...`).
-//      - '{self: ...}' is a Global Theme Assignment and is EXCLUDED from argument counting.
-//      - Mismatched placeholder count triggers a Compile-time Error via `__throw`.
+//      - The number of placeholders '{}' MUST EXACTLY MATCH the number of arguments provided 
+//        in the variadic parameter pack (`Ts...`).
+//      - Mismatched argument count triggers a Compile-time Error (via `__throw`).
 //
-//      Println examples;
-//        println("{self: $red} {} and {}", 10, 20);  // OK: 2 placeholders, 2 args
-//        println("{self: $red} {} and {}", 10);      // ERROR: Argument count mismatch!
+//      Examples:
+//        println("x = {} and y = {}", 10, 20);  // OK: 2 placeholders, 2 args
+//        println("x = {} and y = {}", 10);      // ERROR: Argument count mismatch!
 //
-//      TextFormatter (FormatString) examples:
-//        TextFormatter<int, int>("{self: $red} {} and {}")  // OK: 2 placeholders, 2 args
-//        TextFormatter<int, int>("{self: $red} {} ")        // ERROR: Argument count mismatch!
+//   d) Escaping Rules:
+//      - Escaping curly braces is fully supported: '{{' outputs '{' and '}}' outputs '}'.
+//      - Escaping is strictly evaluated AFTER formatting.
+//      - Escapes ('{{' or '}}') are FORBIDDEN inside format placeholders!
 //
-//   d) Escaping Rules: 
-//      - Curly braces '{' and '}' are STRICTLY reserved for format argument placeholders.
-//      - There is NO escape syntax for braces (e.g., '{{' or '}}' are NOT supported).
+//      Example:
+//        println("workspace {{ theme: {}, folder: {} }}", theme, folder);
+//        => "workspace { theme: dark, folder: /bin }"
 //
-// 2. THE 'self' GLOBAL THEME ASSIGNMENT
+// 2. GLOBAL STYLING (GLOBAL THEME / `self`)
 // ----------------------------------------------------------------------------
-// 'self' represents the formatting style applied to the entire format string 
-// ITSELF (excluding the contents of argument placeholders '{}')
+// Global styling is detached from the format string itself and passed as a separate 
+// `FormatIR` parameter using the `_fmt` User-Defined Literal.
 //
-//     { self : [Text Format Portion] }
+//   a) Passing Global FormatIR:
+//      - Pass a `FormatIR` object as the FIRST argument before the format string.
+//      - Created via `_fmt` string literal operator.
 //
-//   a) Placement Constraints:
-//      - Must be placed EXACTLY at the beginning of the format string (Index 0).
-//      - NO leading spaces or characters are allowed before '{self: ...}'.
+//      Syntax:
+//        println(" [Text Format Specifiers] "_fmt, "Format String...", args...);
 //
-//   b) Default Fallback:
-//      - If '{self: ...}' ommited or left blank, it defaults to FormatIR::generate("", 0).
+//   b) Scope of Global Theme:
+//      - Applies to all literal text segments in the format string.
+//      - Applies to placeholders that explicitly request inheritance via `{self}`.
+//      - If omitted, default global theme is `FormatIR::generate("", 0)`.
 //
-//   - Example:
-//        "{self: >15. $gray}  hello world, peeps!"
-//        => right-aligned + width 15 + '.' padding + gray background
+//   c) Examples:
+//        println(" <30* @green "_fmt, "x = {}", 123);
+//        println(" @navy $cream "_fmt, "Name tag: {self}, ID: {self ; .hex}", "Elen", 255);
 //
-// 3. 'self' STYLE INHERITANCE
+// 3. STYLE INHERITANCE FROM `self`
 // ----------------------------------------------------------------------------
-// Any argument placeholder '{}' can inherit the exact Text Format IR of 'self' 
-// (whether 'self' was explicitly defined or defaulted)
+// Any argument placeholder can inherit the exact `FormatIR` of the global theme (`self`).
 //
 //     { self ; [Type Format Portion] }
 //
-//   a) Placement Constraints:
-//      - Spaces around 'self' are ignored, but the word 'self' itself must be contiguous.
-//      - NO additional text formatting parameters can be merged with 'self'.
+//   a) Rules & Constraints:
+//      - Spaces around 'self' are ignored, but the identifier 'self' must be contiguous.
+//      - NO additional text format specifiers can be merged with 'self' (DRY principle).
 //
 //      Valid Examples:
-//        "{self: $orange}[Monocell Format Lib]\n used in {self} projects!"
-//        "{self; .hex}"   =>  Inherits 'self' text format + uses '.hex' type format
+//        println(" $orange !i "_fmt, "Project: {self} | Count: {self ; .dec}", "mncLib", 42);
+//        => Both "mncLib" and '42' inherit [italic + orange background].
 //
-//      Invalid Examples:
-//        "{self @Red}"    // ERROR: Merging other rules with 'self' is forbidden.
+//      Invalid Example:
+//        "{self @Red}"  // ERROR: Merging other rules with 'self' is forbidden!
 //
 // 4. TEXT FORMAT SYNTAX SPECIFICATION
 // ----------------------------------------------------------------------------
-// Composed of up to 4 orthogonal format specifiers in ANY order, separated 
-// by optional whitespace
+// Composed of up to 4 orthogonal format specifiers in ANY order, separated by optional whitespace:
 //
 //   [1] ALIGNMENT & PADDING:
 //       Syntax: [< | > | _][width][optional: fill_char]
@@ -100,9 +101,9 @@
 //       - fill_char: Single character used for padding (defaults to space ' ')
 //
 //       Examples: 
-//         <30   => Left   + width 30 + no fill
-//         _20*  => Center + width 20 + '*' padding
-//         >15a  => Right  + width 15 + 'a' padding
+//         <30   => Left alignment, width 30
+//         _20*  => Center alignment, width 20, padded with '*'
+//         >15a  => Right alignment, width 15, padded with 'a'
 //
 //   [2] TEXT STYLES (STACKABLE):
 //       Syntax: ![r|b|i|u|s|d]...
@@ -121,43 +122,46 @@
 //   [3] TEXT COLOR (FOREGROUND):
 //       Syntax: @[color_spec]
 //       - Color Name  : @Name / @name         
-//       - RGB Tuple   : @(red, green, blue) (values: 0-255)
+//       - RGB Tuple   : @(red, green, blue)  (values: 0-255)
 //       - 6-Digit Hex : @#RRGGBB / @#rrggbb
 //
 //       Examples: 
-//         Color Names: @Carnelian, @Green, @gray
-//         RGB Tuples: @(220, 20, 60) (Crimson), @(220, 203, 163) (Pearl), @(255, 105, 180) (Pink)
-//         6-Digit Hex: @#7D5048, @#ff7f34
+//         Names     : @Carnelian, @Green, @gray, @Pink
+//         RGB Tuples: @(220, 20, 60), @(120, 200, 255)
+//         Hex       : @#7D5048, @#ff7f34
 //
 //   [4] BACKGROUND COLOR:
 //       Syntax: $[color_spec]
 //       - Color Name  : $Name / $name
-//       - RGB Tuple   : $(red, green, blue) (values: 0-255)
+//       - RGB Tuple   : $(red, green, blue)  (values: 0-255)
 //       - 6-Digit Hex : $#RRGGBB / $#rrggbb
 //
-//       Examples: nah, see TEXT COLOR!
+//       Examples:
+//         Names     : $Navy,$cream
+//         RGB Tuples: $(40, 40, 40) //         Hex       :$#2B2D42
 //
-// 5. TYPE FORMATTERS (EXACT TYPE MATCHING, NO CV-REF)
+// 5. TYPE FORMATTERS SPECIFICATION
 // ----------------------------------------------------------------------------
-//   - Strings (char const*, char[N], char const[N]):
+//   - Strings (char const*, char[N], std::string_view):
 //     Syntax: (empty) | .normal | .debug
 //
 //   - Integers (short, int, long, long long - signed/unsigned):
 //     Syntax: (empty) | .dec | .+dec | .bin | .hex | .Hex | .oct
 //
 //   - Floating Point (float, double, long double):
-//     Syntax: .(empty | precision)(empty | g | f | e)
-//
+//     Syntax: .(precision)(specifier)
+//     - Specifiers: 'f' (fixed), 'e' (scientific), 'g' (general - default)
 //     Examples:
-//       .g    =>   precision 2 (default) + general float
-//       .06   =>   precision 6 + general float (default)
-//       .10e  =>   precision 15 + scientific float
+//       .g     => Default precision (2) + general format
+//       .06    => Precision 6 + general format
+//       .10e   => Precision 10 + scientific format
 //
 //   - Optional / Result (Opt<T, E>):
-//     Syntax: .[(Format For T) ; (Format For E)] (extracts format options recursively)
+//     Syntax: .[(Format For T) ; (Format For E)]
+//     (Recursively parses format options for both Value and Error states)
 //
 // ================================================================================================
-// EXAMPLES & SYNTAX CHEAT SHEET
+// CHEAT SHEET & QUICK EXAMPLES
 // ================================================================================================
 //
 //   {}                                   =>  Default text format, default type format
@@ -167,10 +171,24 @@
 //   {_20* @(179, 27, 27) $(0, 255, 0)}   =>  Center align, fill '*', RGB colors
 //   {>35. !ui @#FFCA03 $#002B56}         =>  Right align, Underline+Italic, Hex colors
 //
-//   {self: <30_ @Carnelian $Green}       =>  Assign global format to outer string
-//   {self}                               =>  Inherit global 'self' text format
-//   {self; .dec}                         =>  Inherit 'self' text format + '.dec' type format
-//   {; .hex}                             =>  Default text format + '.hex' type format
+//
+//   Example 1:
+//   println("{} = {;.hex}", "Value", 255);    => Default styling, 'Value = 0xff'
+//
+//
+//   Example 2:
+//   println(
+//      "<30 !i @(120, 200, 255) $#2B2D42"_fmt, 
+//      "x = {!b @Pink ; .hex}, y = {self; .6f}, s = {; .debug}", 
+//      123, 
+//      1.666667
+//      "hel\t\\lo"
+//   );
+//
+//   => Global theme  : Left align 30, Italic, rgb(120, 200, 255) (ice blue) text, #2B2D42 (dark blue) background
+//      123           : bold, pink text, formatted in hex
+//      1.666667      : inherited global theme, formatted in fixed 6 decimal places
+//      "hel\t\\lo"   : no theme (default theme), printed with \t and \ highlighed for debugging
 //
 // ================================================================================================
 
@@ -678,6 +696,11 @@ static constexpr bool has_default_formatter = requires (FormatBuffer& buffer, T 
     requires (is_trivially_copy_able<Formatter<T>>);
     requires (is_trivially_move_able<Formatter<T>>);
     requires (is_trivially_destructible<Formatter<T>>);
+};
+
+template <typename T>
+static constexpr bool has_buffer_trait = requires (T& buffer, char const* chars, ulong len, FormatIR IR) {
+    requires (same_type<decltype(buffer.write(chars, len, IR)), Result<void, FormatError>>);
 };
 
 // Syntax: (empty) | .normal | .debug
@@ -1930,6 +1953,23 @@ public:
     // {; .[.dec;]}  leaving first param empty is ok
 
 
+    /*
+    *   Update v2:
+    *   - Detatched self from string
+    *   - self is now passed as a seperate argument
+    *   - Format inheritance from self stays the same as v1
+    *
+    *   Example: println("<30* @green"_fmt, "x = {}", 1);
+    *            println("@navy $cream"_fmt, "name tag: {self}, ID: {self}", "Elen", "IC66985478PDA");
+    *
+    *   - Supports escape syntax for { and }
+    *   - After formatted, {{ becomes { and }} becomes }
+    *   - Escape is not allowed in format arguments
+    *   
+    *   Example: println("workspace {{ theme: {}, folder: {} }}", theme, folder);
+    */
+
+
 template <typename... Ts>
 requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
 class TextFormatter {
@@ -2004,15 +2044,13 @@ private:
 
     struct __throw
     {
-        static void TEXTFORMATTER_Cannot_Assign_Self_Format_More_Than_Once() {}
-        static void TEXTFORMATTER_Self_Format_May_Only_Be_Assigned_At_The_Start_Of_Format_String() {}
-        static void TEXTFORMATTER_Type_Format_Arguments_Are_Not_Allowed_In_Self_Format_Assignment() {}
         static void TEXTFORMATTER_Only_Self_Is_Allowed_When_Inheriting_Text_Format() {}
         static void TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace() {}
         static void TEXTFORMATTER_Too_Many_Format_Arguments() {}
         static void TEXTFORMATTER_Too_Few_Format_Arguments() {}
-        static void TEXTFORMATTER_Open_Braces_And_Closing_Braces_Are_Reserved_For_Placeholders_Only() {}
         static void TEXTFORMATTER_Some_Types_Expect_No_Format_Options() {}
+        static void TEXTFORMATTER_Unmatched_Closing_Brace() {}
+        static void TEXTFORMATTER_Open_Braces_Inside_Placeholder_Not_Allowed() {}
     };
 
     struct helper
@@ -2050,15 +2088,14 @@ private:
 
     char const* Format;
     TextChunk textchunk[sizeof...(Ts) + 1];
-    FormatIR self_text_fmt;
-    FormatIR text_fmt[sizeof...(Ts)];
+    Option<FormatIR> text_fmt[sizeof...(Ts)];
     Tuple<index_sequence_init<sizeof...(Ts)>> type_fmt;
     
 private:
     
     template <int... _Index>
     consteval TextFormatter(char const* Format, ulong len, index_sequence<_Index...>)
-    : Format(Format), textchunk{}
+    : Format(Format), textchunk{}, text_fmt{ ((void)_Index, False{}) ... }
     {
         #define once while (false)
         #define Finite_State_Machine_Start while (true)
@@ -2072,87 +2109,107 @@ private:
         char const* const end = Format + len;
 
         //TextChunk textchunk[sizeof...(Ts) + 1];
-        FormatterArg self_text_fmt_arg = { "", 0 }; 
-        FormatterArg text_fmt_arg[sizeof...(Ts)] = {};
+        //FormatterArg self_text_fmt_arg = { "", 0 }; 
+        Option<FormatterArg> text_fmt_arg[sizeof...(Ts)] = { ((void)_Index, False{}) ... };
         FormatterArg type_fmt_arg[sizeof...(Ts)] = {};
         bool has_self_assignment = false;
         int arg_idx = 0;
 
         enum class State {
-            CheckSelfAssignment,
             CollectChunk,
             CollectTextFmt,
             CollectTypeFmt
-        } state = State::CheckSelfAssignment;
+        } state = State::CollectChunk;
 
         auto skip_spaces = [&]() {
             while (p < end && *p == ' ') { p++; }
         };
 
+
+        /*  [IDEA]
+        *
+        *   CollectChunk:
+        *     see '{'  =>  count {{...  =>  | even {{...  =>  skip
+        *                                   | odd {{...   =>  last one is placeholder  =>  save chunk, goto: CollectTextFmt
+        *
+        *     see '}'  =>  count }}...  =>  | even }}..   =>  skip
+        *                                   | odd }}...   =>  throw: Unmatched_Closing_Brace
+        *
+        *     see  _   =>  skip
+        *
+        *     EOF      =>  end FSM
+        *
+        *
+        *   CollectTextFmt:  (no escape allowed)
+        *     see '{'  =>  throw: Open_Braces_Inside_Placeholder_Not_Allowed
+        *
+        *     see ';'  =>  goto: CollectTypeFmt
+        *
+        *     see '}'  =>  goto: CollectChunk
+        *
+        *     see  _   =>  skip
+        *
+        *     EOF      =>  throw: Expecting_Format_Arguments_Or_Closing_Brace
+        *
+        *
+        *   CollectTypeFmt:  (no escape allowed)
+        *     see '{'  =>  throw: Open_Braces_Inside_Placeholder_Not_Allowed
+        *
+        *     see '}'  =>  goto: CollectChunk
+        *
+        *     see  _   =>  skip
+        *
+        *     EOF      =>  throw: Expecting_Format_Arguments_Or_Closing_Brace
+        *
+        */
+
+
+        /*  [SIMPLIFY]
+        *
+        *   CollectChunk:
+        *     see '{{'  =>  skip
+        *
+        *     see '{'   =>  save chunk, goto: CollectTextFmt
+        *
+        *     see '}}'  =>  skip
+        *
+        *     see '}'   =>  throw: Unmatched_Closing_Brace
+        *
+        *     see  _    =>  skip
+        *
+        *     EOF       =>  end FSM
+        *
+        */
+
+
         Finite_State_Machine_Start
         {
-            if (state == State::CheckSelfAssignment)
-            {
-                // default next state if nothing happens
-                state = State::CollectChunk;
-
-                do
-                {
-                    char const* const checkpoint1 = p;
-                    while (p < end && *p != '{') { p++; }
-                    
-                    if (!(p < end && *p == '{')) {
-                        p = checkpoint1;
-                        break;
-                    }
-
-                    char const* const checkpoint2 = p;
-                    p++;
-                    skip_spaces();
-
-                    if (!(end - p >= 4 && p[0] == 's' && p[1] == 'e' && p[2] == 'l' && p[3] == 'f')) {
-                        p = checkpoint1;
-                        break;
-                    }
-
-                    p += 4;
-                    skip_spaces();
-
-                    if (!(p < end && *p == ':')) {
-                        p = checkpoint1;
-                        break;
-                    }
-
-                    p++;
-                    char const* const checkpoint3 = p;
-                    while (p < end && *p != ';' && *p != '}') { p++; }
-
-                    if (*p == ';')
-                        __throw::TEXTFORMATTER_Type_Format_Arguments_Are_Not_Allowed_In_Self_Format_Assignment();
-
-                    if (*p != '}')
-                        __throw::TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace();
-
-                    if (has_self_assignment)
-                        __throw::TEXTFORMATTER_Cannot_Assign_Self_Format_More_Than_Once();
-
-                    if (checkpoint2 != Format)
-                        __throw::TEXTFORMATTER_Self_Format_May_Only_Be_Assigned_At_The_Start_Of_Format_String();
-                    
-                    self_text_fmt_arg = FormatterArg {
-                        .start = checkpoint3,
-                        .len = static_cast<ulong>(p - checkpoint3)
-                    };
-                    
-                    p++; // consume '}'
-                    has_self_assignment = true;
-                    state = State::CheckSelfAssignment;
-                } once;
-            }
-            else if (state == State::CollectChunk)
+            if (state == State::CollectChunk)
             {
                 char const* const checkpoint = p;
-                while (p < end && *p != '{' && *p != '}') { p++; }
+                //while (p < end && *p != '{' && *p != '}') { p++; }
+
+                while (p < end)
+                {
+                    if (end - p > 0 && p[0] == '{')
+                    {
+                        if (end - p > 1 && p[1] == '{')
+                            p += 2;  //  '{{'  =>  skip
+                        else
+                            break;   //  '{'   =>  goto: CollectTextFmt
+                    }
+                    else if (end - p > 0 && p[0] == '}')
+                    {
+                        if (end - p > 1 && p[1] == '}')
+                            p += 2;  //  '}}'  =>  skip
+                        else
+                            __throw::TEXTFORMATTER_Unmatched_Closing_Brace();  
+                    }
+                    else
+                    {
+                        p++;
+                    }
+                }
 
                 if (p < end && *p == '{')
                 {
@@ -2168,11 +2225,7 @@ private:
                     p++;
                     state = State::CollectTextFmt;
                 }
-                else if (p < end && *p == '}')
-                {
-                    __throw::TEXTFORMATTER_Open_Braces_And_Closing_Braces_Are_Reserved_For_Placeholders_Only();
-                }
-                else // end of format string
+                else  // EOF
                 {
                     int arg_count = arg_idx;
                     if (arg_count < sizeof...(Ts))  // still lacking
@@ -2182,102 +2235,111 @@ private:
                         .start = static_cast<ushort>(checkpoint - Format),
                         .len = static_cast<ushort>(p - checkpoint)
                     };
-                    break;
+                    break;  // end FSM
                 }
             }
             else if (state == State::CollectTextFmt)
             {
-                enum class MiniState {
-                    CheckSelf,
-                    CheckAfterSelf,
-                    CollectArg
-                } ministate = MiniState::CheckSelf;
+                bool has_self = false;
 
-                Finite_State_Machine_Start
+                // check for self
                 {
-                    if (ministate == MiniState::CheckSelf)
-                    {
-                        char const* const checkpoint = p;
-                        skip_spaces();
+                    char const* const checkpoint = p;
+                    skip_spaces();
 
-                        if (end - p >= 4 && p[0] == 's' && p[1] == 'e' && p[2] == 'l' && p[3] == 'f')
-                        {
-                            p += 4;
-                            ministate = MiniState::CheckAfterSelf;
-                        }
-                        else
-                        {
-                            p = checkpoint;
-                            ministate = MiniState::CollectArg;
-                        }
+                    if (end - p >= 4 && p[0] == 's' && p[1] == 'e' && p[2] == 'l' && p[3] == 'f')
+                    {
+                        p += 4;  // consume 'self'
+                        has_self = true;
                     }
-                    else if (ministate == MiniState::CheckAfterSelf)
+                    else
                     {
-                        skip_spaces();
-
-                        if (p < end && *p == ';')
-                        {
-                            text_fmt_arg[arg_idx] = self_text_fmt_arg;
-                            p++;  // consume ';'
-                            state = State::CollectTypeFmt;
-                        }
-                        else if (p < end && *p == '}')
-                        {
-                            text_fmt_arg[arg_idx] = self_text_fmt_arg;
-                            p++;  // consume '}'
-                            arg_idx++;
-                            state = State::CheckSelfAssignment;
-                        }
-                        else  // other chars or end of format string
-                        {
-                            __throw::TEXTFORMATTER_Only_Self_Is_Allowed_When_Inheriting_Text_Format();
-                        }
-                        break;
+                        p = checkpoint;
                     }
-                    else if (ministate == MiniState::CollectArg)
-                    {
-                        char const* const checkpoint = p;
-                        
-                        while (p < end && *p != ';' && *p != '}') { p++; }
+                }
 
-                        if (p < end && *p == ';')
+                if (has_self)
+                {
+                    skip_spaces();
+
+                    if (p < end && *p == '{')
+                    {
+                        __throw::TEXTFORMATTER_Open_Braces_Inside_Placeholder_Not_Allowed();
+                    }
+                    if (p < end && *p == ';')
+                    {
+                        text_fmt_arg[arg_idx] = { False{} };
+                        p++;  // consume ';'
+                        state = State::CollectTypeFmt;
+                    }
+                    else if (p < end && *p == '}')
+                    {
+                        text_fmt_arg[arg_idx] = { False{} };
+                        p++;  // consume '}'
+                        arg_idx++;
+                        state = State::CollectChunk;
+                    }
+                    else if (p < end)  // other chars
+                    {
+                        __throw::TEXTFORMATTER_Only_Self_Is_Allowed_When_Inheriting_Text_Format();
+                    }
+                    else  // EOF
+                    {
+                        __throw::TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace();
+                    }
+                }
+                else
+                {
+                    char const* const checkpoint = p;
+                    while (p < end && *p != '{' && *p != ';' && *p != '}') { p++; }
+
+                    if (p < end && *p == '{')
+                    {
+                        __throw::TEXTFORMATTER_Open_Braces_Inside_Placeholder_Not_Allowed();
+                    }
+                    if (p < end && *p == ';')
+                    {
+                        text_fmt_arg[arg_idx] =
                         {
-                            text_fmt_arg[arg_idx] = FormatterArg {
+                            True{}, 
+                            FormatterArg {
                                 .start = checkpoint,
                                 .len = static_cast<ulong>(p - checkpoint)
-                            };
-                            p++;  // consume '}'
-                            state = State::CollectTypeFmt;
-                        }
-                        else if (p < end && *p == '}')
+                            }
+                        };
+                        p++;  // consume ';'
+                        state = State::CollectTypeFmt;
+                    }
+                    else if (p < end && *p == '}')
+                    {
+                        text_fmt_arg[arg_idx] =
                         {
-                            text_fmt_arg[arg_idx] = FormatterArg {
+                            True{},
+                                FormatterArg {
                                 .start = checkpoint,
                                 .len = static_cast<ulong>(p - checkpoint)
-                            };
-                            p++;  // consume '}'
-                            arg_idx++;
-                            state = State::CheckSelfAssignment;
-                        }
-                        else // end of format string
-                        {
-                            __throw::TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace();
-                        }
-                        break;
+                            }
+                        };
+                        p++;  // consume '}'
+                        arg_idx++;
+                        state = State::CollectChunk;
+                    }
+                    else  // EOF
+                    {
+                        __throw::TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace();
                     }
                 }
             }
             else if (state == State::CollectTypeFmt)
             {
                 char const* checkpoint = p;
-
                 while (p < end && *p != '{' && *p != '}') { p++; }
 
                 if (p < end && *p == '{')
                 {
-                    __throw::TEXTFORMATTER_Open_Braces_And_Closing_Braces_Are_Reserved_For_Placeholders_Only();
+                    __throw::TEXTFORMATTER_Open_Braces_Inside_Placeholder_Not_Allowed();
                 }
-                else if (p < end && *p == '}')
+                if (p < end && *p == '}')
                 {
                     type_fmt_arg[arg_idx] = FormatterArg {
                         .start = checkpoint,
@@ -2285,9 +2347,9 @@ private:
                     };
                     p++;  // consume '}'
                     arg_idx++;
-                    state = State::CheckSelfAssignment;
+                    state = State::CollectChunk;
                 }
-                else // end of format string
+                else // EOF
                 {
                     __throw::TEXTFORMATTER_Expecting_Format_Arguments_Or_Closing_Brace();
                 }
@@ -2296,10 +2358,13 @@ private:
 
         // assign values
         {
-            self_text_fmt = FormatIR::generate(self_text_fmt_arg.start, self_text_fmt_arg.len);
-
-            for (int i = 0; i < sizeof...(Ts); i++) {
-                text_fmt[i] = FormatIR::generate(text_fmt_arg[i].start, text_fmt_arg[i].len);
+            for (int i = 0; i < sizeof...(Ts); i++)
+            {
+                text_fmt[i] = text_fmt_arg[i].map(
+                    [&](FormatterArg fmt_arg) -> FormatIR {
+                        return FormatIR::generate(fmt_arg.start, fmt_arg.len);
+                    }
+                );
             }
 
             type_fmt = { 
@@ -2320,23 +2385,163 @@ private:
     using Cell = TupleCell<map[_Index], type_at<_Index, Formatter<Ts>...>>;
 
     template <int... _Index>
-    Result<void, FormatError> format(index_sequence<_Index...>, FormatBuffer& buffer, Ts const&... values) const
+    Result<void, FormatError> format(index_sequence<_Index...>, FormatIR self_text_fmt, FormatBuffer& buffer, Ts const&... values) const
     {
+        #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
+
+        struct helper
+        {
+            static Result<void, FormatError> write_by_segments(FormatBuffer& self, char const* const chars, ulong write_len)
+            {
+                char const* const end = chars + write_len;
+                char const* wstart = chars;
+                char const* p = chars;
+
+                while (p < end)
+                {
+                    if (*p == '{' || *p == '}')  //  =>  must be {{ or }}  =>  (p + 2 <= end)
+                    {
+                        p++;  // jump to second }
+                        GUARD(self.write(wstart, p - wstart));
+                        p++;  // consume second }
+                        wstart = p;
+                    }
+                    else
+                    {
+                        p++;
+                    }
+                }
+                
+                return self.write(wstart, p - wstart);
+            }
+
+            static Result<void, FormatError> buffer_write(FormatBuffer& self, char const* const chars, ulong write_len, FormatIR IR)
+            {
+                struct helper
+                {
+                    static void format_into(char* buffer, byte value)
+                    {
+                        buffer[2] = '0' + (value % 10);
+                        buffer[1] = '0' + (value / 10) % 10;
+                        buffer[0] = '0' + (value / 100) % 10;
+                    }
+                };
+
+                bool styled = false;
+                Result<void, FormatError> res = { True{} };
+
+                if (IR.text_color == True{})
+                {
+                    Color8bit color_vec = IR.text_color.unwrap();
+                    char buffer[] = "\e[38;2;000;000;000m";
+                    helper::format_into(buffer + 7, color_vec.red);
+                    helper::format_into(buffer + 11, color_vec.green);
+                    helper::format_into(buffer + 15, color_vec.blue);
+                    GUARD(self.write(buffer, sizeof(buffer) - 1));
+                    styled = true;
+                }
+
+                if (IR.background_color == True{})
+                {
+                    Color8bit color_vec = IR.background_color.unwrap();
+                    char buffer[] = "\e[48;2;000;000;000m";
+                    helper::format_into(buffer + 7, color_vec.red);
+                    helper::format_into(buffer + 11, color_vec.green);
+                    helper::format_into(buffer + 15, color_vec.blue);
+                    GUARD(self.write(buffer, sizeof(buffer) - 1));
+                    styled = true;
+                }
+
+                if (IR.style != Style::Regular)
+                {
+                    uint flags = +IR.style;
+                    char buffer[] = "\e[_;_;_;_;_m";
+                    int i = 2;
+                    if (flags & +Style::Bold)      { buffer[i] = '1'; i += 2; }
+                    if (flags & +Style::Dim)       { buffer[i] = '2'; i += 2; }
+                    if (flags & +Style::Italic)    { buffer[i] = '3'; i += 2; }
+                    if (flags & +Style::Underline) { buffer[i] = '4'; i += 2; }
+                    if (flags & +Style::Strike)    { buffer[i] = '9'; i += 2; }
+                    buffer[i - 1] = 'm';
+                    GUARD(self.write(buffer, i));
+                    styled = true;
+                }
+
+                ulong count = 0;  // count { and }
+                for (ulong i = 0; i < write_len; i++) {
+                    if (chars[i] == '{' || chars[i] == '}') count++;
+                }
+
+                if (IR.align.width > (write_len - count / 2))
+                {
+                    ulong fill_len = IR.align.width - (write_len - count / 2);
+                    switch (IR.align.mode)
+                    {
+                        case Align::Mode::Left:
+                        {
+                            GUARD(write_by_segments(self, chars, write_len));
+                            GUARD(self.write(IR.align.fill, fill_len));
+                            break;
+                        }
+                        case Align::Mode::Right:
+                        {
+                            GUARD(self.write(IR.align.fill, fill_len));
+                            GUARD(write_by_segments(self, chars, write_len));
+                            break;
+                        }
+                        case Align::Mode::Center:
+                        {
+                            GUARD(self.write(IR.align.fill, fill_len / 2));
+                            GUARD(write_by_segments(self, chars, write_len));
+                            GUARD(self.write(IR.align.fill, fill_len - fill_len / 2));
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    GUARD(write_by_segments(self, chars, write_len));
+                }
+
+                if (styled)
+                    return self.write("\e[0m");
+                else
+                    return { True{} };
+            }
+        };
+
         Result<void, FormatError> res = { True{} };
+        // unroll...
         (
             (res = res.and_then
             (
                 [&]() -> Result<void, FormatError> 
                 {
-                    auto res = buffer.write(Format + textchunk[_Index].start, textchunk[_Index].len, self_text_fmt);
-                    if (res == False{}) return res;
-                    return static_cast<Cell<_Index> const&>(type_fmt).data.format(buffer, values, text_fmt[_Index]);
+                    GUARD(helper::buffer_write(
+                        buffer, 
+                        Format + textchunk[_Index].start, 
+                        textchunk[_Index].len, 
+                        self_text_fmt
+                    ));
+
+                    return static_cast<Cell<_Index> const&>(type_fmt).data.format(
+                        buffer, 
+                        values,
+                        text_fmt[_Index].value_or(self_text_fmt)
+                    );
                 }
             )), ...
         );
-
         if (res == False{}) return res;
-        return buffer.write(Format + textchunk[sizeof...(_Index)].start, textchunk[sizeof...(_Index)].len, self_text_fmt);
+
+        return helper::buffer_write(
+            buffer,
+            Format + textchunk[sizeof...(_Index)].start,
+            textchunk[sizeof...(_Index)].len,
+            self_text_fmt
+        );
+
+        #undef GUARD
     }
 
 public:
@@ -2348,8 +2553,8 @@ public:
     consteval TextFormatter(char const (&Format)[N])
     : TextFormatter(Format, N - 1, index_sequence_init<sizeof...(Ts)>{}) {}
     
-    Result<void, FormatError> format(FormatBuffer& buffer, Ts const&... values) const {
-        return format(index_sequence_init<sizeof...(Ts)>{}, buffer, values...);
+    Result<void, FormatError> format(FormatIR self_text_fmt, FormatBuffer& buffer, Ts const&... values) const {
+        return format(index_sequence_init<sizeof...(Ts)>{}, self_text_fmt, buffer, values...);
     }
 
     constexpr char const* data() const {
@@ -2364,12 +2569,16 @@ public:
 template <typename... Ts>
 using FormatString = TextFormatter<no_type_deduction<Ts>...>;
 
+consteval FormatIR operator""_fmt(char const* _, ulong __) {
+    return FormatIR::generate(_, __);
+}
+
 template <typename... Ts>
 requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
 Result<void, FormatError> print(FormatString<Ts...> Format, Ts const&... values)
 {
     FormatBuffer buffer;
-    auto res = Format.format(buffer, values...);
+    auto res = Format.format(FormatIR {}, buffer, values...);
     if (res == False{}) return res;
     std::fwrite(buffer.data(), 1, buffer.size(), stdout);
     return { True{} };
@@ -2377,10 +2586,34 @@ Result<void, FormatError> print(FormatString<Ts...> Format, Ts const&... values)
 
 template <typename... Ts>
 requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
-Result<void, FormatError> println(FormatString<Ts...> Format, Ts const&... values) // ME PUSH CHARS FASSSST! 🦍⚡
+Result<void, FormatError> print(FormatIR self, FormatString<Ts...> Format, Ts const&... values)
 {
     FormatBuffer buffer;
-    auto res = Format.format(buffer, values...);
+    auto res = Format.format(self, buffer, values...);
+    if (res == False{}) return res;
+    std::fwrite(buffer.data(), 1, buffer.size(), stdout);
+    return { True{} };
+}
+
+template <typename... Ts>
+requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
+Result<void, FormatError> println(FormatString<Ts...> Format, Ts const&... values)
+{
+    FormatBuffer buffer;
+    auto res = Format.format(FormatIR {}, buffer, values...);
+    if (res == False{}) return res;
+    res = buffer.write("\n");
+    if (res == False{}) return res;
+    std::fwrite(buffer.data(), 1, buffer.size(), stdout);
+    return { True{} };
+}
+
+template <typename... Ts>
+requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
+Result<void, FormatError> println(FormatIR self, FormatString<Ts...> Format, Ts const&... values)
+{
+    FormatBuffer buffer;
+    auto res = Format.format(self, buffer, values...);
     if (res == False{}) return res;
     res = buffer.write("\n");
     if (res == False{}) return res;

@@ -1,3 +1,23 @@
+/*****************************************************************************************#\
+##                                                                                        ##
+##                ____ _____ _     _     _____ ___  ____  __  __    _  _____              ##
+##               / ___| ____| |   | |   |  ___/ _ \|  _ \|  \/  |  / \|_   _|             ##
+##              | |   |  _| | |   | |   | |_ | | | | |_) | |\/| | / _ \ | |               ##
+##              | |___| |___| |___| |___|  _|| |_| |  _ <| |  | |/ ___ \| |               ##
+##               \____|_____|_____|_____|_|   \___/|_| \_\_|  |_/_/   \_\_|               ##
+##                                                                                        ##
+##               MONOCELL FORMATING LIBRARY v1.0 (C++20 or later)                         ##
+##                                                                                        ##
+##                                                                                        ##
+##                        Minimalist.  Powerful.  Terminal-friendly.                      ##
+##                                                                                        ##
+##                  => Just format() it. Just align() it. Just color() it.                ##
+##                                                                                        ##
+\#*****************************************************************************************/
+
+
+
+
 #pragma once
 #include <cstdio>
 #include <cstdlib>
@@ -11,7 +31,7 @@
 
 
 // ================================================================================================
-//                MONOCELL TEXT FORMATTER SPECIFICATION (C++20 or later) - v3.0
+//                           HOW TO USE THIS LIB 👉👉                   (cheatsheet below 🤫👇)
 // ================================================================================================
 //
 // 1. PLACEHOLDERS & DUAL-SECTION SYNTAX
@@ -1936,8 +1956,8 @@ public:
     // spaces dont matter
 
     // SPECIAL:
-    // {self: <30_ @Carnelian $Green}
-    // => apply this formating style to the output string itself
+    // pass this to the first parameter of println: "<30_ @Carnelian $Green"_fmt
+    // => applies this formating style to everything except format args
 
     // {@(179, 27, 27); .2}  => FormatIR::generate("@(179, 27, 27)"). Fomatter<float>(" .2")
     // {self; .dec}          => use the same formatting style as the output string. Formatter<int>(" .dec")
@@ -2556,14 +2576,6 @@ public:
     Result<void, FormatError> format(FormatIR self_text_fmt, FormatBuffer& buffer, Ts const&... values) const {
         return format(index_sequence_init<sizeof...(Ts)>{}, self_text_fmt, buffer, values...);
     }
-
-    constexpr char const* data() const {
-        return Format;
-    }
-
-    constexpr ushort size() const {
-        return textchunk[sizeof...(Ts)].len;
-    }
 };
 
 template <typename... Ts>
@@ -2610,7 +2622,7 @@ Result<void, FormatError> println(FormatString<Ts...> Format, Ts const&... value
 
 template <typename... Ts>
 requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
-Result<void, FormatError> println(FormatIR self, FormatString<Ts...> Format, Ts const&... values)
+Result<void, FormatError> println(FormatIR self, FormatString<Ts...> Format, Ts const&... values)  // ME PUSH CHARS FASSSST! 🦍⚡
 {
     FormatBuffer buffer;
     auto res = Format.format(self, buffer, values...);

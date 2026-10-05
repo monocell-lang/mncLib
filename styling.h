@@ -2,10 +2,12 @@
 #include "optional.h"
 
 
+
 #define _MNC_BEGIN namespace mnc {
 #define _MNC_END }
 
 _MNC_BEGIN
+
 
 //////////////////////////////////////////////////////////////////////
 ////////////////////// Formatting Styles /////////////////////////////
@@ -411,12 +413,11 @@ public:
                         };
                     }
                 }
-                else if (len >= 6 && p < end - 6 && *p == '#')  // # and 6 letters, the same as p + 7 <= end
+                else if (end - p >= 7 && *p == '#')
                 {
                     p++;
 
                     char const* checkpoint = p;
-
                     enum class LetterCase { Unknown, LowerCase, UpperCase } hex_type = LetterCase::Unknown;
 
                     for (int i = 0; i < 6; i++)
@@ -582,6 +583,49 @@ public:
     static consteval FormatIR generate(char const(&params)[N])
     {
         return generate(params, N - 1);
+    }
+
+    constexpr ulong added_width() const
+    {
+        ulong result = 0;
+        bool styled = false;
+
+        if (text_color == True{})
+        {
+            //buffer.write("\e[38;2;000;000;000m");
+            result += 19; 
+            styled = true;
+        }
+
+        if (background_color == True{})
+        {
+            // buffer.write("\e[48;2;000;000;000m")
+            result += 19;  
+            styled = true;
+        }
+
+        if (style != Style::Regular)
+        {
+            uint flags = +style;
+            // buffer = "\e[_;_;_;_;_m";
+            int i = 2;
+            if (flags & +Style::Bold)      { i += 2; }
+            if (flags & +Style::Dim)       { i += 2; }
+            if (flags & +Style::Italic)    { i += 2; }
+            if (flags & +Style::Underline) { i += 2; }
+            if (flags & +Style::Strike)    { i += 2; }
+            // buffer[i - 1] = 'm';
+            result += i;
+            styled = true;
+        }
+
+        if (styled)
+        {
+            // buffer.write("\e[0m");
+            result += 4;
+        }
+
+        return result;
     }
 };
 

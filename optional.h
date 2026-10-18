@@ -4,7 +4,6 @@
 #include <new>
 #include "type_traits.h"
 
-
 #define _MNC_BEGIN namespace mnc {
 #define _MNC_END }
 
@@ -15,27 +14,29 @@ _MNC_BEGIN
 ////////////////////////////////////////////////////////////////////////////
 #pragma region Opt<T, E>
 
+template <typename T, typename E>
+class Opt;
 
 template <typename T, typename E>
 requires (
-    (is_move_constructible<T> /*&& is_noexcept_resource<T>*/ || same_type<T, void>) && 
-    (is_move_constructible<E> && is_copy_constructible<E> /*&& is_noexcept_resource<T>*/ || same_type<E, void>) &&
+    (is_move_constructible<T> || same_type<T, void>) && 
+    (is_move_constructible<E> && is_copy_constructible<E> || same_type<E, void>) &&
     !is_rvalue_reference<T> &&
     !is_reference<E>
 )
-class Opt {
+class Opt<T, E> {
 private:
 
     struct __throw 
     {
-        static void OPT_unwrap_on_False_state() noexcept
+        static void OPT_unwrap_on_False_state() 
         {
             std::fprintf(stderr, "[mnc::Opt] ;; ABORT WARNING ;; unwrap on False state\n");
             std::fflush(stderr);
             std::abort();
         }
 
-        static void OPT_unwrap_err_on_True_state() noexcept
+        static void OPT_unwrap_err_on_True_state() 
         {
             std::fprintf(stderr, "[mnc::Opt] ;; ABORT WARNING ;; unwrap_err on True state\n");
             std::fflush(stderr);
@@ -43,94 +44,115 @@ private:
         }
     };
 
-    template <typename Val, typename Err>
-    struct Data {
-        union {
-            Val value;
-            Err error;
-        };
-        bool isOK;
+    #if defined(__clang__) || defined(__GNUC__)   // optimization for clang and gcc fanboys🤠
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wpedantic"
+        using Unit = bool[0];
+        #pragma GCC diagnostic pop
+    #else
+        using Unit = bool;
+    #endif
+
+    template <typename Ty>
+    struct Enable_If_Value {
+        using type = Ty;
     };
 
-    template <typename Val>
-    struct Data<Val, void> {
-        union {
-            Val value;
-        };
-        bool isOK;
-    };
-
-    template <typename Val, typename Err>
-    struct Data<Val&, Err> {
-        union {
-            Val* ptr;
-            Err error;
-        };
-        bool isOK;
-    };
-
-    template <typename Val>
-    struct Data<Val&, void> {
-        union {
-            Val* ptr;
-        };
-        bool isOK;
-    };
-
-    template <typename Err>
-    struct Data<void, Err> {
-        union {
-            Err error;
-        };
-        bool isOK;
+    template <typename Ty>
+    struct Enable_If_Value<Ty&> {
+        using type = Unit;
     };
 
     template <>
-    struct Data<void, void> {
-        bool isOK;
+    struct Enable_If_Value<void> {
+        using type = Unit;
     };
+
+    using Val = typename Enable_If_Value<T>::type;
+    using Err = typename Enable_If_Value<E>::type;
+
+    template <typename Ty>
+    struct Enable_If_Ref {
+        using type = Unit;
+    };
+
+    template <typename Ty>
+    struct Enable_If_Ref<Ty&> {
+        using type = Ty*;
+    };
+
+    using Ptr = typename Enable_If_Ref<T>::type;
+
+    template <bool condition>
+    struct Disable_Bool {
+        using type = bool;
+    };
+
+    template <>
+    struct Disable_Bool<true> {
+        using type = Unit;
+    };
+
+    using Bool = typename Disable_Bool<
+        is_lvalue_reference<T> && 
+        same_type<E, void>
+    >::type;
 
 private:
 
-    Data<T, E> data;
+    union {
+        Val value;
+        Ptr ptr;
+        Err error;
+    };
+
+    Bool _isOK;
 
 public:
 
     template <typename Arg>
-    constexpr Opt(True, Arg&& val) noexcept
+    constexpr Opt(True, Arg&& val) 
     requires (
         !same_type<T, void> && 
         is_convertible_from<T, Arg&&> &&
         is_trivially_constructible_from<T, Arg&&> && is_trivially_destructible<T> &&
         !is_lvalue_reference<T>
     )
-    : data{ .value = val, .isOK = true } {}
+    : value(val), _isOK(true) {}
 
     template <typename Arg>
-    constexpr Opt(True, Arg&& val) noexcept
+    constexpr Opt(True, Arg&& val) 
     requires (
         !same_type<T, void> && 
         is_convertible_from<T, Arg&&> &&
-        is_lvalue_reference<T>
+        is_lvalue_reference<T> && !same_type<E, void>
     )
-    : data{ .ptr = &val, .isOK = true } {}
+    : ptr(&val), _isOK(true) {}
+
+    template <typename Arg>
+    constexpr Opt(True, Arg&& val) 
+    requires (
+        !same_type<T, void> && 
+        is_convertible_from<T, Arg&&> &&
+        is_lvalue_reference<T> && same_type<E, void>
+    )
+    : ptr(&val) {}
 
     template <typename Arg>
     Opt(True, Arg&& val)
     requires (
         !same_type<T, void> && 
         is_convertible_from<T, Arg&&> &&
-        !(is_trivially_constructible_from<T, Arg&&> && is_trivially_destructible<T>) 
-        //&& is_noexcept_constructible_from<T, Arg&&>
+        !(is_trivially_constructible_from<T, Arg&&> && is_trivially_destructible<T>)
     )
-    : data{ .isOK = true }
+    : _isOK(true)
     {
-        ::new (&data.value) T { mnc::forward<Arg>(val) };
+        ::new (&value) T { mnc::forward<Arg>(val) };
     }
 
-    constexpr Opt(True) noexcept
+    constexpr Opt(True) 
     requires (same_type<T, void>)
-    : data{ .isOK = true } {}
+    : _isOK(true) {}
 
     template <typename Arg>
     constexpr Opt(False, Arg&& err)
@@ -139,7 +161,7 @@ public:
         is_convertible_from<E, Arg&&> &&
         is_trivially_constructible_from<E, Arg&&> && is_trivially_destructible<E>
     )
-    : data{ .error = err, .isOK = false } {}
+    : error(err), _isOK(false) {}
 
     template <typename Arg>
     Opt(False, Arg&& err)
@@ -148,21 +170,24 @@ public:
         is_convertible_from<E, Arg&&> &&
         !(is_trivially_constructible_from<E, Arg&&> && is_trivially_destructible<E>)
     )
-    : data{ .isOK = false }
+    : _isOK(false)
     {
-        ::new (&data.error) E { mnc::forward<Arg>(err) };
+        ::new (&error) E { mnc::forward<Arg>(err) };
     }
 
-    constexpr Opt(False) noexcept
-    requires (same_type<E, void>)
-    : data{ .isOK = false } {}
+    constexpr Opt(False) 
+    requires (!is_lvalue_reference<T> && same_type<E, void>)
+    : _isOK(false) {}
 
-    constexpr Opt(Opt const& other) noexcept
+    constexpr Opt(False) 
+    requires (is_lvalue_reference<T> && same_type<E, void>)
+    : ptr(nullptr) {}
+
+    constexpr Opt(Opt const& other) 
     requires (
         (same_type<T, void> || is_trivially_copy_constructible<T>) &&
         (same_type<E, void> || is_trivially_copy_constructible<E>)
     ) = default;
-    //: data{ other.data } {}
 
     Opt(Opt const& other)
     requires (
@@ -170,41 +195,40 @@ public:
         !same_type<E, void> && !is_trivially_copy_constructible<E>) &&
         is_copy_constructible<T>
     )
-    : data{ .isOK = other.data.isOK }
+    : _isOK(other._isOK)
     {
         if constexpr (!same_type<T, void> && !is_trivially_copy_constructible<T>) {
-            if (data.isOK) ::new (&data.value) T { other.data.value };
+            if (_isOK) ::new (&value) T { other.value };
         }
         
         if constexpr (!same_type<E, void> && !is_trivially_copy_constructible<E>) {
-            if (!data.isOK) ::new (&data.error) E { other.data.error };
+            if (!_isOK) ::new (&error) E { other.error };
         }
     }
 
-    constexpr Opt(Opt&& other) noexcept
+    constexpr Opt(Opt&& other) 
     requires (
         (same_type<T, void> || is_trivially_move_constructible<T>) &&
         (same_type<E, void> || is_trivially_move_constructible<E>)
     ) = default;
-    //: data{ mov(other.data) } {}
 
     Opt(Opt&& other)
     requires (
         (!same_type<T, void> && !is_trivially_move_constructible<T>) ||
         (!same_type<E, void> && !is_trivially_move_constructible<E>)
     )
-    : data{ .isOK = other.data.isOK }
+    : _isOK(other._isOK)
     {
         if constexpr (!same_type<T, void> && !is_trivially_move_constructible<T>) {
-            if (data.isOK) ::new (&data.value) T { static_cast<T&&>(other.data.value) };
+            if (_isOK) ::new (&value) T { static_cast<T&&>(other.value) };
         }
 
         if constexpr (!same_type<E, void> && !is_trivially_move_constructible<E>) {
-            if (!data.isOK) ::new (&data.error) E { static_cast<E&&>(other.data.error) };
+            if (!_isOK) ::new (&error) E { static_cast<E&&>(other.error) };
         }
     }
 
-    constexpr ~Opt() noexcept
+    constexpr ~Opt() 
     requires (
         (same_type<T, void> || is_trivially_destructible<T>) &&
         (same_type<E, void> || is_trivially_destructible<E>)
@@ -217,15 +241,15 @@ public:
     )
     {
         if constexpr (!same_type<T, void> && !is_trivially_destructible<T>) {
-            if (data.isOK) data.value.~T();
+            if (_isOK) value.~T();
         }
 
         if constexpr (!same_type<E, void> && !is_trivially_destructible<E>) {
-            if (!data.isOK) data.error.~E();
+            if (!_isOK) error.~E();
         }
     }
 
-    constexpr Opt& operator=(Opt const& other) noexcept
+    constexpr Opt& operator=(Opt const& other) 
     requires (
         (is_trivially_copy_constructible<T> || same_type<T, void>) &&
         (is_trivially_copy_constructible<E> || same_type<E, void>)
@@ -244,30 +268,30 @@ public:
         /// DESTRUCTOR
         {
             if constexpr (!same_type<T, void> && !is_trivially_destructible<T>) {
-                if (data.isOK) data.value.~T();
+                if (_isOK) value.~T();
             }
 
             if constexpr (!same_type<E, void> && !is_trivially_destructible<E>) {
-                if (!data.isOK) data.error.~E();
+                if (!_isOK) error.~E();
             }
         }
 
         /// COPY CONSTRUCTOR
-        data.isOK = other.data.isOK;
+        _isOK = other._isOK;
         {
             if constexpr (!same_type<T, void>) {
-                if (data.isOK) ::new (&data.value) T { other.data.value };
+                if (_isOK) ::new (&value) T { other.value };
             }
             
             if constexpr (!same_type<E, void>) {
-                if (!data.isOK) ::new (&data.error) E { other.data.error };
+                if (!_isOK) ::new (&error) E { other.error };
             }
         }
 
         return *this;
     }
 
-    constexpr Opt& operator=(Opt&& other) noexcept
+    constexpr Opt& operator=(Opt&& other) 
     requires (
         (is_trivially_move_constructible<T> || same_type<T, void>) &&
         (is_trivially_move_constructible<E> || same_type<E, void>)
@@ -285,28 +309,40 @@ public:
         /// DESTRUCTOR
         {
             if constexpr (!same_type<T, void> && !is_trivially_destructible<T>) {
-                if (data.isOK) data.value.~T();
+                if (_isOK) value.~T();
             }
 
             if constexpr (!same_type<E, void> && !is_trivially_destructible<E>) {
-                if (!data.isOK) data.error.~E();
+                if (!_isOK) error.~E();
             }
         }
         
         /// MOVE CONSTRUCTOR
-        data.isOK = other.data.isOK;
+        _isOK = other._isOK;
         {
             if constexpr (!same_type<T, void>) {
-                if (data.isOK) ::new (&data.value) T { static_cast<T&&>(other.data.value) };
+                if (_isOK) ::new (&value) T { static_cast<T&&>(other.value) };
             }
 
             if constexpr (!same_type<E, void>) {
-                if (!data.isOK) ::new (&data.error) E { static_cast<E&&>(other.data.error) };
+                if (!_isOK) ::new (&error) E { static_cast<E&&>(other.error) };
             }
         }
 
         return *this;
     }
+
+private:
+
+    constexpr bool isOK() const
+    {
+        if constexpr (is_lvalue_reference<T> && same_type<E, void>)
+            return ptr != nullptr;
+        else
+            return _isOK;
+    }
+
+public:
 
     constexpr Opt clone() const
     requires (is_copy_constructible<T>)
@@ -314,10 +350,10 @@ public:
         return Opt(*this);
     }
 
-    constexpr bool operator==(True) const noexcept { return data.isOK; }
-    constexpr bool operator!=(True) const noexcept { return !data.isOK; }
-    constexpr bool operator==(False) const noexcept { return !data.isOK; }
-    constexpr bool operator!=(False) const noexcept { return data.isOK; }
+    constexpr bool operator==(True) const { return isOK(); }
+    constexpr bool operator!=(True) const { return !isOK(); }
+    constexpr bool operator==(False) const { return !isOK(); }
+    constexpr bool operator!=(False) const { return isOK(); }
 
     ////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////// fn: match ///////////////////////////////
@@ -400,19 +436,19 @@ public:
         >
     )
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>) 
-                return fn1(True{}, data.value);
+                return fn1(True{}, value);
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return fn1(True{}, *data.ptr);
+                return fn1(True{}, *ptr);
             else
                 return fn1(True{});
         }
         else
         {
             if constexpr (!same_type<E, void>)
-                return fn2(False{}, data.error);
+                return fn2(False{}, error);
             else
                 return fn2(False{});
         }
@@ -432,19 +468,19 @@ public:
         >
     )
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>) 
-                return fn1(True{}, data.value);
+                return fn1(True{}, value);
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return fn1(True{}, *data.ptr);
+                return fn1(True{}, *ptr);
             else
                 return fn1(True{});
         }
         else
         {
             if constexpr (!same_type<E, void>)
-                return fn2(False{}, data.error);
+                return fn2(False{}, error);
             else
                 return fn2(False{});
         }
@@ -457,35 +493,35 @@ public:
     //
     constexpr decltype(auto) unwrap() &
     {
-        if (!data.isOK)
+        if (!isOK())
             __throw::OPT_unwrap_on_False_state();
 
         if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-            return *&data.value;
+            return *&value;
         else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-            return *data.ptr;
+            return *ptr;
     }
 
     constexpr decltype(auto) unwrap() const& 
     {
-        if (!data.isOK)
+        if (!isOK())
             __throw::OPT_unwrap_on_False_state();
 
         if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-            return *&data.value;
+            return *&value;
         else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-            return *data.ptr;
+            return *ptr;
     }
 
     constexpr decltype(auto) unwrap() && 
     {
-        if (!data.isOK)
+        if (!isOK())
             __throw::OPT_unwrap_on_False_state();
 
         if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-            return static_cast<T&&>(data.value);
+            return static_cast<T&&>(value);
         else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-            return *data.ptr;
+            return *ptr;
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -495,29 +531,29 @@ public:
     //
     constexpr decltype(auto) unwrap_err() & 
     {
-        if (data.isOK)
+        if (isOK())
             __throw::OPT_unwrap_err_on_True_state();
 
         if constexpr (!same_type<E, void>)
-            return *&data.error;
+            return *&error;
     }
 
     constexpr decltype(auto) unwrap_err() const& 
     {
-        if (data.isOK)
+        if (isOK())
             __throw::OPT_unwrap_err_on_True_state();
 
         if constexpr (!same_type<E, void>)
-            return *&data.error;
+            return *&error;
     }
 
     constexpr decltype(auto) unwrap_err() && 
     {
-        if (data.isOK)
+        if (isOK())
             __throw::OPT_unwrap_err_on_True_state();
         
         if constexpr (!same_type<E, void>)
-            return static_cast<E&&>(data.error);
+            return static_cast<E&&>(error);
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -529,12 +565,12 @@ public:
     constexpr T value_or(Fallback&& fallback_val) const& 
     requires (!same_type<T, void> && is_copy_constructible<T> && is_convertible_from<T, Fallback&&>)
     {
-        if (data.isOK) 
+        if (isOK()) 
         {
             if constexpr (!is_lvalue_reference<T>)
-                return data.value;
+                return value;
             else
-                return *data.ptr;
+                return *ptr;
         }
         else
         {
@@ -546,12 +582,12 @@ public:
     constexpr T value_or(Fallback&& fallback_val) && 
     requires (!same_type<T, void> && is_convertible_from<T, Fallback&&>)
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!is_lvalue_reference<T>)
-                return static_cast<T&&>(data.value);
+                return static_cast<T&&>(value);
             else
-                return *data.ptr;
+                return *ptr;
         }
         else
         {
@@ -568,12 +604,12 @@ public:
     constexpr T value_or_call(Fallback&& fallback_fn) const& 
     requires (!same_type<T, void> && is_copy_constructible<T> && is_callable<Fallback&&, T()>)
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!is_lvalue_reference<T>)
-                return data.value;
+                return value;
             else
-                return *data.ptr;
+                return *ptr;
         }
         else
         {
@@ -585,12 +621,12 @@ public:
     constexpr T value_or_call(Fallback&& fallback_fn) && 
     requires (!same_type<T, void> && is_callable<Fallback&&, T()>)
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!is_lvalue_reference<T>)
-                return static_cast<T&&>(data.value);
+                return static_cast<T&&>(value);
             else
-                return *data.ptr;
+                return *ptr;
         }
         else
         {
@@ -624,12 +660,12 @@ public:
     constexpr Opt<Out, E> map(Mapper&& fn) const& 
     requires (!same_type<Out, NAUR> && (is_copy_constructible<T> || same_type<T, void>))
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!same_type<Out, void> && !same_type<T, void> && !is_lvalue_reference<T>)
-                return { True{}, fn(data.value) };
+                return { True{}, fn(value) };
             else if constexpr (!same_type<Out, void> && !same_type<T, void> && is_lvalue_reference<T>)
-                return { True{}, fn(*data.ptr) };
+                return { True{}, fn(*ptr) };
             else if constexpr (!same_type<Out, void> && same_type<T, void>)
                 return { True{}, fn() };
             else
@@ -638,7 +674,7 @@ public:
         else
         {
             if constexpr (!same_type<E, void>)
-                return { False{}, data.error };
+                return { False{}, error };
             else
                 return { False{} };
         }
@@ -652,12 +688,12 @@ public:
     constexpr Opt<Out, E> map(Mapper&& fn) && 
     requires (!same_type<Out, NAUR>)
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!same_type<Out, void> && !same_type<T, void> && !is_lvalue_reference<T>)
-                return { True{}, fn(static_cast<T&&>(data.value)) };
+                return { True{}, fn(static_cast<T&&>(value)) };
             else if constexpr (!same_type<Out, void> && !same_type<T, void> && is_lvalue_reference<T>)
-                return { True{}, fn(*data.ptr) };
+                return { True{}, fn(*ptr) };
             else if constexpr (!same_type<Out, void> && same_type<T, void>)
                 return { True{}, fn() };
             else
@@ -666,7 +702,7 @@ public:
         else
         {
             if constexpr (!same_type<E, void>)
-                return { False{}, static_cast<E&&>(data.error) };
+                return { False{}, static_cast<E&&>(error) };
             else
                 return { False{} };
         }
@@ -684,19 +720,19 @@ public:
     constexpr Opt<T, Out> map_err(Mapper&& fn) const& 
     requires (!same_type<Out, NAUR> && is_copy_constructible<T>)
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-                return { True{}, data.value };
+                return { True{}, value };
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return { True{}, *data.ptr };
+                return { True{}, *ptr };
             else
                 return { True{} };
         }
         else
         {
             if constexpr (!same_type<Out, void> && !same_type<E, void>)
-                return { False{}, fn(data.error) };
+                return { False{}, fn(error) };
             else if constexpr (!same_type<Out, void> && same_type<E, void>)
                 return { False{}, fn() };
             else
@@ -712,19 +748,19 @@ public:
     constexpr Opt<T, Out> map_err(Mapper&& fn) && 
     requires (!same_type<Out, NAUR>)
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-                return { True{}, static_cast<T&&>(data.value) };
+                return { True{}, static_cast<T&&>(value) };
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return { True{}, *data.ptr };
+                return { True{}, *ptr };
             else
                 return { True{} };
         }
         else
         {
             if constexpr (!same_type<Out, void> && !same_type<E, void>)
-                return { False{}, fn(static_cast<E&&>(data.error)) };
+                return { False{}, fn(static_cast<E&&>(error)) };
             else if constexpr (!same_type<Out, void> && same_type<E, void>)
                 return { False{}, fn() };
             else
@@ -763,19 +799,19 @@ public:
         same_type<typename AsOpt<Out>::err, E> &&
         (is_copy_constructible<T> || same_type<T, void>))
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-                return fn(data.value);
+                return fn(value);
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return fn(*data.ptr);
+                return fn(*ptr);
             else
                 return fn();
         }
         else
         {
             if constexpr (!same_type<E, void>)
-                return { False{}, data.error };
+                return { False{}, error };
             else
                 return { False{} };
         }
@@ -791,19 +827,19 @@ public:
         !same_type<typename AsOpt<Out>::val, NAUR> && 
         same_type<typename AsOpt<Out>::err, E>)
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-                return fn(static_cast<T&&>(data.value));
+                return fn(static_cast<T&&>(value));
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return fn(*data.ptr);
+                return fn(*ptr);
             else
                 return fn();
         }
         else
         {
             if constexpr (!same_type<E, void>)
-                return { False{}, static_cast<E&&>(data.error) };
+                return { False{}, static_cast<E&&>(error) };
             else
                 return { False{} };
         }
@@ -824,19 +860,19 @@ public:
         !same_type<typename AsOpt<Out>::err, NAUR> &&
         (is_copy_constructible<T> || same_type<T, void>))
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-                return { True{}, data.value };
+                return { True{}, value };
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return { True{}, *data.ptr };
+                return { True{}, *ptr };
             else
                 return { True{} };
         }
         else
         {
             if constexpr (!same_type<E, void>)
-                return fn(data.error);
+                return fn(error);
             else
                 return fn();
         }
@@ -852,19 +888,19 @@ public:
         same_type<typename AsOpt<Out>::val, T> &&
         !same_type<typename AsOpt<Out>::err, NAUR>)
     {
-        if (data.isOK)
+        if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-                return { True{}, static_cast<T&&>(data.value) };
+                return { True{}, static_cast<T&&>(value) };
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return { True{}, *data.ptr };
+                return { True{}, *ptr };
             else
                 return { True{} };
         }
         else
         {
             if constexpr (!same_type<E, void>)
-                return fn(static_cast<E&&>(data.error));
+                return fn(static_cast<E&&>(error));
             else
                 return fn();
         }
@@ -885,15 +921,15 @@ public:
     {
         if constexpr (!is_lvalue_reference<T>)
         {
-            if (data.isOK && fn(data.value)) 
-                return { True{}, data.value };
+            if (isOK() && fn(value)) 
+                return { True{}, value };
             else
                 return { False{} };
         }
         else
         {
-            if (data.isOK && fn(*data.ptr)) 
-                return { True{}, *data.ptr };
+            if (isOK() && fn(*ptr)) 
+                return { True{}, *ptr };
             else
                 return { False{} };
         }
@@ -909,15 +945,15 @@ public:
     {
         if constexpr (!is_lvalue_reference<T>)
         {
-            if (data.isOK && fn(data.value)) 
-                return { True{}, static_cast<T&&>(data.value) };
+            if (isOK() && fn(value)) 
+                return { True{}, static_cast<T&&>(value) };
             else
                 return { False{} };
         }
         else
         {
-            if (data.isOK && fn(*data.ptr)) 
-                return { True{}, *data.ptr };
+            if (isOK() && fn(*ptr)) 
+                return { True{}, *ptr };
             else
                 return { False{} };
         }

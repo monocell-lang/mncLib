@@ -1,5 +1,6 @@
 #pragma once
 
+
 #define _MNC_BEGIN namespace mnc {
 #define _MNC_END }
 
@@ -19,11 +20,25 @@ typedef unsigned int u32;
 typedef unsigned long long u64;
 typedef float f32;
 typedef double f64;
-typedef long double f128;
 typedef unsigned char byte;
 typedef unsigned int uint;
 typedef unsigned long long ulong;
 typedef unsigned short ushort;
+typedef char32_t wchar;
+
+#ifdef __SIZEOF_FLOAT128__
+typedef __float128 f128;
+typedef __float128 quad;
+#endif
+
+consteval i8 operator""_i8(unsigned long long _)  { return static_cast<i8>(_); }
+consteval i16 operator""_i16(unsigned long long _) { return static_cast<i16>(_); }
+consteval i32 operator""_i32(unsigned long long _) { return static_cast<i32>(_); }
+consteval i64 operator""_i64(unsigned long long _) { return static_cast<i64>(_); }
+consteval u8 operator""_u8(unsigned long long _)  { return static_cast<u8>(_); }
+consteval u16 operator""_u16(unsigned long long _) { return static_cast<u16>(_); }
+consteval u32 operator""_u32(unsigned long long _) { return static_cast<u32>(_); }
+consteval u64 operator""_u64(unsigned long long _) { return static_cast<u64>(_); }
 
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
@@ -39,6 +54,7 @@ typedef unsigned short ushort;
 *   Sử dụng:
 *   - Dùng chủ yếu trong các class Option<T> và Result<T, E>
 */
+
 struct True {
     explicit True() = default;
     static constexpr bool value = true;
@@ -53,6 +69,7 @@ struct True {
 *   Sử dụng:
 *   - Dùng chủ yếu trong các class Option<T> và Result<T, E>
 */
+
 struct False {
     explicit False() = default;
     static constexpr bool value = false;
@@ -60,7 +77,6 @@ struct False {
 
 
 _MNC_END
-
 /*
 *   class: _
 *   - Một class đại diện cho việc bỏ qua type
@@ -78,7 +94,6 @@ _MNC_END
 struct _ {
     explicit _() = default;
 };
-
 _MNC_BEGIN
 
 /*
@@ -93,7 +108,25 @@ _MNC_BEGIN
 *   - Không sử dụng NAUR để tạo object
 *   - Nó chỉ đóng vai trò như cái nhãn "lỗi không thể xác định kiểu dữ liệu"
 */
+
 struct NAUR;
+
+/*
+*   class: PACKAGE
+*   - Một class đặc biệt được dùng để chứa mã nguồn nội bộ
+*   - Cho phép giấu chi tiết thực thi bên trong trường private
+*
+*   Sử dụng:
+*   - Tạo một specialization mới của PACKAGE
+*   - Mỗi PACKAGE nên có một ID riêng (thường tạo ra bởi "ID"_hash)
+*
+*   Lưu ý:
+*   - Không sử dụng PACKAGE để tạo object
+*   - Nó chỉ có vai trò như một namesapce có tính đóng gói và template toàn cục
+*/
+
+template <ulong ID>
+class PACKAGE;
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////
@@ -138,11 +171,6 @@ static constexpr bool is_specialization_of = false;
 
 template <typename... Ts, template <typename...> typename Template_Type>
 static constexpr bool is_specialization_of<Template_Type<Ts...>, Template_Type> = true;
-
-
-// is_valid_type
-template <typename T>
-static constexpr bool is_valid_type = !same_type<T, NAUR>;
 
 
 #pragma endregion
@@ -291,7 +319,10 @@ template <typename T>
 using remove_volatile = typename struct_remove_volatile<T>::type;
 
 template <typename T>
-using remove_cv = remove_const<remove_volatile<T>>;
+using remove_const_volatile = remove_const<remove_volatile<T>>;
+
+template <typename T>
+using remove_const_reference = remove_const<remove_reference<T>>;
 
 template <typename T>
 struct struct_remove_pointer {
@@ -366,7 +397,7 @@ using remove_param = typename struct_remove_param<T>::type;
 
 template <typename T>
 struct struct_decay {
-    using type = remove_cv<T>;
+    using type = remove_const_volatile<T>;
 };
 
 template <typename T>
@@ -411,43 +442,41 @@ using decay = typename struct_decay<T>::type;
 
 template <typename T>
 static constexpr bool is_signed_int =
-same_type<remove_cv<T>, signed char>  || 
-same_type<remove_cv<T>, signed short> || 
-same_type<remove_cv<T>, signed int>   || 
-same_type<remove_cv<T>, signed long>  || 
-same_type<remove_cv<T>, signed long long>;
+same_type<T, signed char>  || 
+same_type<T, signed short> || 
+same_type<T, signed int>   || 
+same_type<T, signed long>  || 
+same_type<T, signed long long>;
 
 template <typename T>
 static constexpr bool is_unsigned_int =
-same_type<remove_cv<T>, unsigned char>  ||
-same_type<remove_cv<T>, unsigned short> || 
-same_type<remove_cv<T>, unsigned int>   || 
-same_type<remove_cv<T>, unsigned long>  || 
-same_type<remove_cv<T>, unsigned long long>;
+same_type<T, unsigned char>  ||
+same_type<T, unsigned short> || 
+same_type<T, unsigned int>   || 
+same_type<T, unsigned long>  || 
+same_type<T, unsigned long long>;
 
 template <typename T>
 static constexpr bool is_float =
-same_type<remove_cv<T>, float>  || 
-same_type<remove_cv<T>, double> || 
-same_type<remove_cv<T>, long double>;
+same_type<T, float>  || 
+same_type<T, double> || 
+same_type<T, long double>;
 
 template <typename T>
-static constexpr bool is_char =
-same_type<remove_cv<T>, char>          ||
-same_type<remove_cv<T>, signed char>   || 
-same_type<remove_cv<T>, unsigned char>;
+static constexpr bool is_bool = same_type<T, bool>;
 
 template <typename T>
-static constexpr bool is_bool = same_type<remove_cv<T>, bool>;
+static constexpr bool is_char = 
+same_type<T, char>      ||
+same_type<T, wchar_t>   ||
+same_type<T, char16_t>  ||
+same_type<T, char32_t>;
 
 template <typename T>
-static constexpr bool is_void = same_type<remove_cv<T>, void>;
+static constexpr bool is_void = same_type<T, void>;
 
 template <typename T>
 static constexpr bool is_int = is_signed_int<T> || is_unsigned_int<T>;
-
-template <typename T>
-static constexpr bool is_arithmetic = is_int<T> || is_float<T> || is_bool<T>;
 
 template <typename T>
 struct struct_is_lvalue_reference {
@@ -463,6 +492,37 @@ template <typename T>
 static constexpr bool is_lvalue_reference = struct_is_lvalue_reference<T>::value;
 
 template <typename T>
+struct struct_is_const_lvalue_reference {
+    static constexpr bool value = false;
+};
+
+template <typename T>
+struct struct_is_const_lvalue_reference<T const&> {
+    static constexpr bool value = true;
+};
+
+template <typename T>
+static constexpr bool is_const_lvalue_reference = struct_is_const_lvalue_reference<T>::value;
+
+template <typename T>
+struct struct_is_nonconst_lvalue_reference {
+    static constexpr bool value = false;
+};
+
+template <typename T>
+struct struct_is_nonconst_lvalue_reference<T&> {
+    static constexpr bool value = true;
+};
+
+template <typename T>
+struct struct_is_nonconst_lvalue_reference<T const&> {
+    static constexpr bool value = false;
+};
+
+template <typename T>
+static constexpr bool is_nonconst_lvalue_reference = struct_is_nonconst_lvalue_reference<T>::value;
+
+template <typename T>
 struct struct_is_rvalue_reference {
     static constexpr bool value = false;
 };
@@ -476,8 +536,44 @@ template <typename T>
 static constexpr bool is_rvalue_reference = struct_is_rvalue_reference<T>::value;
 
 template <typename T>
+struct struct_is_const_rvalue_reference {
+    static constexpr bool value = false;
+};
+
+template <typename T>
+struct struct_is_const_rvalue_reference<T const&&> {
+    static constexpr bool value = true;
+};
+
+template <typename T>
+static constexpr bool is_const_rvalue_reference = struct_is_const_rvalue_reference<T>::value;
+
+template <typename T>
+struct struct_is_nonconst_rvalue_reference {
+    static constexpr bool value = false;
+};
+
+template <typename T>
+struct struct_is_nonconst_rvalue_reference<T&&> {
+    static constexpr bool value = true;
+};
+
+template <typename T>
+struct struct_is_nonconst_rvalue_reference<T const&&> {
+    static constexpr bool value = false;
+};
+
+template <typename T>
+static constexpr bool is_nonconst_rvalue_reference = struct_is_nonconst_rvalue_reference<T>::value;
+
+template <typename T>
 static constexpr bool is_reference = is_lvalue_reference<T> || is_rvalue_reference<T>;
 
+template <typename T>
+static constexpr bool is_const_reference = is_const_lvalue_reference<T> || is_const_rvalue_reference<T>;
+
+template <typename T>
+static constexpr bool is_nonconst_reference = is_nonconst_lvalue_reference<T> || is_nonconst_rvalue_reference<T>;
 
 template <typename T>
 struct struct_is_const {
@@ -516,22 +612,38 @@ struct struct_is_pointer<T*> {
 };
 
 template <typename T>
-struct struct_is_pointer<T* const> {
+static constexpr bool is_pointer = struct_is_pointer<remove_const_volatile<T>>::value;
+
+template <typename T>
+struct struct_is_const_pointer {
+    static constexpr bool value = false;
+};
+
+template <typename T>
+struct struct_is_const_pointer<T const*> {
     static constexpr bool value = true;
 };
 
 template <typename T>
-struct struct_is_pointer<T* volatile> {
+static constexpr bool is_const_pointer = struct_is_const_pointer<remove_const_volatile<T>>::value;
+
+template <typename T>
+struct struct_is_nonconst_pointer {
+    static constexpr bool value = false;
+};
+
+template <typename T>
+struct struct_is_nonconst_pointer<T*> {
     static constexpr bool value = true;
 };
 
 template <typename T>
-struct struct_is_pointer<T* const volatile> {
-    static constexpr bool value = true;
+struct struct_is_nonconst_pointer<T const*> {
+    static constexpr bool value = false;
 };
 
 template <typename T>
-static constexpr bool is_pointer = struct_is_pointer<T>::value;
+static constexpr bool is_nonconst_pointer = struct_is_nonconst_pointer<remove_const_volatile<T>>::value;
 
 template <typename T>
 struct struct_is_class_ptr {
@@ -551,11 +663,6 @@ struct struct_is_array {
     static constexpr bool value = false;
 };
 
-/*template <typename T>
-struct is_array<T[]> {
-    static constexpr bool value = true;
-};*/
-
 template <typename T, int N>
 struct struct_is_array<T[N]> {
     static constexpr bool value = true;
@@ -563,6 +670,19 @@ struct struct_is_array<T[N]> {
 
 template <typename T>
 static constexpr bool is_array = struct_is_array<T>::value;
+
+template <typename T>
+struct struct_is_unbounded_array {
+    static constexpr bool value = false;
+};
+
+template <typename T>
+struct struct_is_unbounded_array<T[]> {
+    static constexpr bool value = true;
+};
+
+template <typename T>
+static constexpr bool is_unbounded_array = struct_is_unbounded_array<T>::value;
 
 template <typename T>
 struct struct_is_function {
@@ -599,9 +719,6 @@ template <typename T>
 static constexpr bool is_union = __is_union(T);
 
 template <typename T>
-static constexpr bool is_POD_type = __is_pod(T);
-
-template <typename T>
 static constexpr bool is_polymorphic_class = __is_polymorphic(T);
 
 template <typename T>
@@ -632,7 +749,7 @@ struct struct_lvalue_reference {
 };
 
 template <typename T>
-struct struct_lvalue_reference<T, enable_if<same_type<remove_cv<T>, void>>> {
+struct struct_lvalue_reference<T, enable_if<same_type<remove_const<T>, void>>> {
     using type = T;
 };
 
@@ -645,7 +762,7 @@ struct struct_rvalue_reference {
 };
 
 template <typename T>
-struct struct_rvalue_reference<T, enable_if<same_type<remove_cv<T>, void>>> {
+struct struct_rvalue_reference<T, enable_if<same_type<remove_const<T>, void>>> {
     using type = T;
 };
 
@@ -847,6 +964,7 @@ static constexpr bool is_pointer_to_field = struct_is_pointer_to_field<T>::value
 *   Lưu ý:
 *   - Không sử dụng assert_exression để khởi tạo object
 */
+
 template <typename... Req>
 using assert_exression = template_pass;
 
@@ -864,9 +982,7 @@ using assert_exression = template_pass;
 */
 
 template <typename T>
-rvalue_reference<T> declval() noexcept;
-// Trước đây:   T&&   (void&& ==> lỗi)
-
+T&& declval() noexcept;
 
 
 #pragma endregion
@@ -954,37 +1070,6 @@ using return_type = typename struct_is_callable<T, Signature>::return_type;
 /////////////////////////////////////////////////////////////////////////////
 #pragma region is_constructible
 
-template <typename... Arg>
-struct struct_is_constructible_from {
-private:
-
-    template <typename T, typename = template_pass>
-    struct inner {
-        static constexpr bool value = false;
-        static constexpr bool value_noexcept = false;
-    };
-
-    template <typename T>
-    struct inner<T, assert_exression<decltype(T(declval<Arg>()...))>> {
-        static constexpr bool value = true;
-        static constexpr bool value_noexcept = noexcept((T(declval<Arg>()...)));
-    };
-
-public:
-
-    template <typename T>
-    static constexpr bool value = inner<T>::value;
-
-    template <typename T>
-    static constexpr bool value_noexcept = inner<T>::value_noexcept;
-};
-
-template <typename T, typename... Arg>
-static constexpr bool is_constructible_from = struct_is_constructible_from<Arg...>::template value<T>;
-
-template <typename T, typename... Arg>
-static constexpr bool is_noexcept_constructible_from = struct_is_constructible_from<Arg...>::template value_noexcept<T>;
-
 template <typename T, typename = template_pass>
 struct struct_is_implicitly_default_constructible {
     static constexpr bool value = false;
@@ -992,7 +1077,7 @@ struct struct_is_implicitly_default_constructible {
 };
 
 template <typename T>
-struct struct_is_implicitly_default_constructible<T, decltype(declval<void(*)(T)>()({}))> {
+struct struct_is_implicitly_default_constructible<T, assert_exression<decltype(declval<void(*)(T)>()({}))>> {
     static constexpr bool value = true;
     static constexpr bool value_noexcept = noexcept(declval<void(*)(T)>()({}));
 };
@@ -1003,150 +1088,76 @@ static constexpr bool is_implicitly_default_constructible = struct_is_implicitly
 template <typename T>
 static constexpr bool is_noexcept_implicitly_default_constructible = struct_is_implicitly_default_constructible<T>::value_noexcept;
 
-template <typename... Arg>
-struct struct_is_aggregatable_from {
-private:
 
-    template <typename T, typename = template_pass>
-    struct inner {
-        static constexpr bool value = false;
-        static constexpr bool value_noexcept = false;
-    };
-
-    template <typename T>
-    struct inner<T, assert_exression<decltype(T{ declval<Arg>()... })>>  {
-        static constexpr bool value = true;
-        static constexpr bool value_noexcept = noexcept(T{ declval<Arg>()... });
-    };
-
-public:
-
-    template <typename T>
-    static constexpr bool value = inner<T>::value;
-
-    template <typename T>
-    static constexpr bool value_noexcept = inner<T>::value_noexcept;
-};
-
-template <typename T, typename... Arg>
-static constexpr bool is_aggregatable_from = struct_is_aggregatable_from<Arg...>::template value<T>;
-
-template <typename T, typename... Arg>
-static constexpr bool is_noexcept_aggregatable_from = struct_is_aggregatable_from<Arg...>::template value_noexcept<T>;
-
-template <typename T, typename = template_pass>
-struct struct_is_default_constructible {
-    static constexpr bool value = false;
-    static constexpr bool value_noexcept = false;
-};
+template <typename T, typename... Args>
+static constexpr bool is_constructible_from = __is_constructible(T, Args...);
 
 template <typename T>
-struct struct_is_default_constructible<T, assert_exression<decltype(T())>> {
-    static constexpr bool value = true;
-    static constexpr bool value_noexcept = noexcept(T());
-};
+static constexpr bool is_default_constructible = __is_constructible(T);
 
 template <typename T>
-static constexpr bool is_default_able = struct_is_default_constructible<T>::value;
+static constexpr bool is_copy_constructible = __is_constructible(T, T const&);
+
+template <>
+inline constexpr bool is_copy_constructible<void> = __is_constructible(void, void);
+
+template <>
+inline constexpr bool is_copy_constructible<void const> = __is_constructible(void const, void const);
 
 template <typename T>
-static constexpr bool is_noexcept_default_able = struct_is_default_constructible<T>::value_noexcept;
+static constexpr bool is_move_constructible = __is_constructible(T, T&&);
 
-template <typename T, typename = template_pass>
-struct struct_is_copy_constructible {
-    static constexpr bool value = false;
-    static constexpr bool value_noexcept = false;
-};
+template <>
+inline constexpr bool is_move_constructible<void> = __is_constructible(void, void);
 
-template <typename T>
-struct struct_is_copy_constructible<T, assert_exression<decltype(T(declval<T&>()))>> {
-    static constexpr bool value = true;
-    static constexpr bool value_noexcept = noexcept(T(declval<T&>()));
-};
+template <typename T, typename S>
+static constexpr bool is_assignable_from = __is_assignable(T&, S);
 
 template <typename T>
-static constexpr bool is_copy_constructible = struct_is_copy_constructible<T>::value;
+static constexpr bool is_copy_assignable = __is_assignable(T&, T const&);
+
+template <>
+inline constexpr bool is_copy_assignable<void> = __is_assignable(void, void);
 
 template <typename T>
-static constexpr bool is_noexcept_copy_constructible = struct_is_copy_constructible<T>::value_noexcept;
+static constexpr bool is_move_assignable = __is_assignable(T&, T&&);
 
-template <typename T, typename = template_pass>
-struct struct_is_move_constructible {
-    static constexpr bool value = false;
-    static constexpr bool value_noexcept = false;
-};
+template <>
+inline constexpr bool is_move_assignable<void> = __is_assignable(void, void);
 
 template <typename T>
-struct struct_is_move_constructible<T, assert_exression<decltype(T(declval<T&&>()))>> {
-    static constexpr bool value = true;
-    static constexpr bool value_noexcept = noexcept(T(declval<T&&>()));
-};
+static constexpr bool is_copy_able = is_copy_constructible<T> && is_copy_assignable<T>;
 
 template <typename T>
-static constexpr bool is_move_constructible = struct_is_move_constructible<T>::value;
+static constexpr bool is_move_able = is_move_constructible<T> && is_move_assignable<T>;
 
 template <typename T>
-static constexpr bool is_noexcept_move_constructible = struct_is_move_constructible<T>::value_noexcept;
+static constexpr bool is_aggregate = __is_aggregate(T);
 
-template <typename T, typename = template_pass>
-struct struct_is_copy_assignable {
-    static constexpr bool value = false;
-    static constexpr bool value_noexcept = false;
-};
 
-template <typename T>
-struct struct_is_copy_assignable<T&> {
-    static constexpr bool value = false;
-    static constexpr bool value_noexcept = false;
-};
+#pragma endregion
+/////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+#pragma region is_constructible
+
+template <typename T, typename... Args>
+static constexpr bool is_noexcept_constructible_from = __is_nothrow_constructible(T, Args...);
 
 template <typename T>
-struct struct_is_copy_assignable<T&&> {
-    static constexpr bool value = false;
-    static constexpr bool value_noexcept = false;
-};
+static constexpr bool is_noexcept_default_constructible = __is_nothrow_constructible(T);
 
 template <typename T>
-struct struct_is_copy_assignable<T, assert_exression<decltype(declval<T&>() = declval<T const&>())>> {
-    static constexpr bool value = true;
-    static constexpr bool value_noexcept = noexcept(declval<T&>() = declval<T const&>());
-};
+static constexpr bool is_noexcept_copy_constructible = __is_nothrow_constructible(T, T const&);
 
 template <typename T>
-static constexpr bool is_copy_assignable = struct_is_copy_assignable<T>::value;
+static constexpr bool is_noexcept_move_constructible = __is_nothrow_constructible(T, T&&);
 
 template <typename T>
-static constexpr bool is_noexcept_copy_assignable = struct_is_copy_assignable<T>::value_noexcept;
-
-template <typename T, typename = template_pass>
-struct struct_is_move_assignable {
-    static constexpr bool value = false;
-    static constexpr bool value_noexcept = false;
-};
+static constexpr bool is_noexcept_copy_assignable = __is_nothrow_assignable(T&, T const&);
 
 template <typename T>
-struct struct_is_move_assignable<T&> {
-    static constexpr bool value = false;
-    static constexpr bool value_noexcept = false;
-};
-
-template <typename T>
-struct struct_is_move_assignable<T&&> {
-    static constexpr bool value = false;
-    static constexpr bool value_noexcept = false;
-};
-
-template <typename T>
-struct struct_is_move_assignable<T, assert_exression<decltype(declval<T&>() = declval<T&&>())>> {
-    static constexpr bool value = true;
-    static constexpr bool value_noexcept = noexcept(declval<T&>() = declval<T&&>());
-};
-
-template <typename T>
-static constexpr bool is_move_assignable = struct_is_move_assignable<T>::value;
-
-template <typename T>
-static constexpr bool is_noexcept_move_assignable = struct_is_move_assignable<T>::value_noexcept;
+static constexpr bool is_noexcept_move_assignable = __is_nothrow_assignable(T&, T&&);
 
 template <typename T>
 static constexpr bool is_noexcept_destructible = noexcept(declval<T&>().~T());
@@ -1156,12 +1167,12 @@ inline constexpr bool is_noexcept_destructible<void> = false;
 
 template <typename T>
 static constexpr bool is_noexcept_resource = 
-(!is_default_able<T>       || is_noexcept_default_able<T>)       &&
-(!is_copy_constructible<T> || is_noexcept_copy_constructible<T>) &&
-(!is_move_constructible<T> || is_noexcept_move_constructible<T>) &&
-(!is_copy_assignable<T>    || is_noexcept_copy_assignable<T>)    &&
-(!is_move_assignable<T>    || is_noexcept_move_assignable<T>)    &&
-( /* destructible */ true  || is_noexcept_destructible<T>);
+(!is_default_constructible<T> || is_noexcept_default_constructible<T>) &&
+(!is_copy_constructible<T>    || is_noexcept_copy_constructible<T>)    &&
+(!is_move_constructible<T>    || is_noexcept_move_constructible<T>)    &&
+(!is_copy_assignable<T>       || is_noexcept_copy_assignable<T>)       &&
+(!is_move_assignable<T>       || is_noexcept_move_assignable<T>)       &&
+(/* destructible */ !true     || is_noexcept_destructible<T>);
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////
@@ -1171,6 +1182,9 @@ static constexpr bool is_noexcept_resource =
 
 template <typename T, typename... Args>
 static constexpr bool is_trivially_constructible_from = __is_trivially_constructible(T, Args...);
+
+template <typename T>
+static constexpr bool is_trivially_default_constructible = __is_trivially_constructible(T);
 
 template <typename T>
 static constexpr bool is_trivially_copy_constructible = __is_trivially_constructible(T, T const&);
@@ -1236,64 +1250,9 @@ static constexpr bool is_trivially_destructible = struct_is_trivially_destructib
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
-#pragma region is_comparable
+#pragma region has_operator
 
-template <typename T, typename = template_pass>
-struct struct_is_comparable {
-    static constexpr bool value = false;
-};
 
-template <typename T>
-struct struct_is_comparable<T, assert_exression<decltype(declval<T>() == declval<T>()), decltype(declval<T>() != declval<T>())>> {
-    static constexpr bool value = 
-    same_type<decltype(declval<T>() == declval<T>()), bool> &&
-    same_type<decltype(declval<T>() != declval<T>()), bool>;
-};
-
-template <typename T>
-static constexpr bool is_comparable = struct_is_comparable<T>::value;
-
-template <typename T, typename = template_pass>
-struct struct_is_ordered {
-    static constexpr bool value = false;
-};
-
-template <typename T>
-struct struct_is_ordered<T, assert_exression<decltype(declval<T>() < declval<T>()), decltype(declval<T>() > declval<T>())>> {
-    static constexpr bool value = 
-    same_type<decltype(declval<T>() < declval<T>()), bool> &&
-    same_type<decltype(declval<T>() > declval<T>()), bool>;
-};
-
-template <typename T>
-static constexpr bool is_ordered = struct_is_ordered<T>::value;
-
-template <typename T, typename = template_pass>
-struct struct_is_totally_ordered {
-    static constexpr bool value = false;
-};
-
-template <typename T>
-struct struct_is_totally_ordered<T,
-assert_exression<
-decltype(declval<T>() == declval<T>()),
-decltype(declval<T>() != declval<T>()),
-decltype(declval<T>() < declval<T>()),
-decltype(declval<T>() <= declval<T>()),
-decltype(declval<T>() > declval<T>()),
-decltype(declval<T>() >= declval<T>())>>
-{
-    static constexpr bool value = 
-    same_type<decltype(declval<T>() == declval<T>()), bool> &&
-    same_type<decltype(declval<T>() != declval<T>()), bool> &&
-    same_type<decltype(declval<T>() < declval<T>()), bool>  &&
-    same_type<decltype(declval<T>() <= declval<T>()), bool> &&
-    same_type<decltype(declval<T>() > declval<T>()), bool>  &&
-    same_type<decltype(declval<T>() >= declval<T>()), bool>;
-};
-
-template <typename T>
-static constexpr bool is_totally_ordered = struct_is_totally_ordered<T>::value;
 
 
 #pragma endregion
@@ -1356,7 +1315,7 @@ private:
         };
     };
 
-    struct verison_02
+    struct version_02
     {
         template <int size, int i, int... index>
         struct struct_index_sequence_init {
@@ -1408,7 +1367,7 @@ private:
 public:
 
     template <int size>
-    using type = version_03::index_sequence_init<size>;
+    using type = version_02::index_sequence_init<size>;
 };
 
 template <int size>
@@ -1590,56 +1549,44 @@ static constexpr int index_of_type = []()
 }();
 
 
-// Pack
+// pack
 template <typename... Ts>
-struct Pack {
+struct pack {};
 
-    template <int index>
-    using type_at = type_at<index, Ts...>;
-
-    static constexpr int size() { return sizeof...(Ts); }
-
-    template <typename T>
-    static constexpr bool has() { return type_belongs<T, Ts...>; }
-
-    template <typename T>
-    static constexpr int index_of() { return index_of_type<T, Ts...>; }
-};
-
-// is Pack
+// is pack
 template <typename T>
 static constexpr bool is_Pack = false;
 
 template <typename... Ts>
-static constexpr bool is_Pack<Pack<Ts...>> = true;
+static constexpr bool is_Pack<pack<Ts...>> = true;
 
 
 // type at
-template <int index, typename Pack>
-using Pack_type_at = typename Pack::template type_at<index>;
+template <int index, typename pack>
+using Pack_type_at = typename pack::template type_at<index>;
 
 
 // pushback / pushfront
-template <typename Pack, bool pushback, typename... Items>
+template <typename pack, bool pushback, typename... Items>
 struct struct_Pack_push {
     using type = NAUR;
 };
 
 template <typename... Pack_Items, typename... Items>
-struct struct_Pack_push<Pack<Pack_Items...>, true, Items...> {
-    using type = Pack<Pack_Items..., Items...>;
+struct struct_Pack_push<pack<Pack_Items...>, true, Items...> {
+    using type = pack<Pack_Items..., Items...>;
 };
 
 template <typename... Pack_Items, typename... Items>
-struct struct_Pack_push<Pack<Pack_Items...>, false, Items...> {
-    using type = Pack<Items..., Pack_Items...>;
+struct struct_Pack_push<pack<Pack_Items...>, false, Items...> {
+    using type = pack<Items..., Pack_Items...>;
 };
 
-template <typename Pack, typename... Items>
-using Pack_pushback = typename struct_Pack_push<Pack, true, Items...>::type;
+template <typename pack, typename... Items>
+using Pack_pushback = typename struct_Pack_push<pack, true, Items...>::type;
 
-template <typename Pack, typename... Items>
-using Pack_pushfront = typename struct_Pack_push<Pack, false, Items...>::type;
+template <typename pack, typename... Items>
+using Pack_pushfront = typename struct_Pack_push<pack, false, Items...>::type;
 
 
 // concat
@@ -1654,8 +1601,8 @@ private:
         };
 
         template <typename... Ts_Left, typename... Ts_Right>
-        struct struct_concat_two<Pack<Ts_Left...>, Pack<Ts_Right...>> {
-            using type = Pack<Ts_Left..., Ts_Right...>;
+        struct struct_concat_two<pack<Ts_Left...>, pack<Ts_Right...>> {
+            using type = pack<Ts_Left..., Ts_Right...>;
         };
 
         template <typename Accumulator, typename... Packs>
@@ -1673,7 +1620,7 @@ private:
         };
 
         template <typename... Packs>
-        using type = typename struct_Pack_concat<Pack<>, Packs...>::type;
+        using type = typename struct_Pack_concat<pack<>, Packs...>::type;
     };
 
 public:
@@ -1717,9 +1664,9 @@ private:
         };
 
         template <typename... Packs_Left, typename... Packs_Right>
-        struct cartesian_prod_two<Pack<Packs_Left...>, Pack<Packs_Right...>> {
+        struct cartesian_prod_two<pack<Packs_Left...>, pack<Packs_Right...>> {
             template <typename Pack_Left>
-            using Segment = Pack<Pack_concat<Pack_Left, Packs_Right>...>;
+            using Segment = pack<Pack_concat<Pack_Left, Packs_Right>...>;
             using type = Pack_concat<Segment<Packs_Left>...>;
         };
 
@@ -1740,21 +1687,21 @@ private:
         };
 
         // Convert { A, B, C }  into  { (A), (B), (C) }
-        template <typename Pack>
+        template <typename pack>
         struct struct_wrap_elem {
             using type = NAUR;
         };
 
         template <typename... Ts>
-        struct struct_wrap_elem<Pack<Ts...>> {       //  Pack<A, B, C>
-            using type = Pack<Pack<Ts>...>;          // --> Pack<Pack<A>, Pack<B>, Pack<C>>
+        struct struct_wrap_elem<pack<Ts...>> {       //  pack<A, B, C>
+            using type = pack<pack<Ts>...>;          // --> pack<pack<A>, pack<B>, pack<C>>
         };
 
-        template <typename Pack>
-        using wrap_elem = typename struct_wrap_elem<Pack>::type;
+        template <typename pack>
+        using wrap_elem = typename struct_wrap_elem<pack>::type;
 
         template <typename... Packs>
-        using Pack_cartesian_prod = typename cartesian_prod<Pack<Pack<>>, wrap_elem<Packs>...>::type;
+        using Pack_cartesian_prod = typename cartesian_prod<pack<pack<>>, wrap_elem<Packs>...>::type;
     };
 
     struct version_02
@@ -1848,15 +1795,15 @@ private:
                 }
             };
 
-            // each Pack
+            // each pack
             template <int Row, int... Col>
             static auto render_row(index_sequence<Col...>) 
-            -> Pack<Pack_type_at<Modular(Row).get((sizeof...(Packs) - 1) - Col), type_at<Col, Packs...>>...>;
+            -> pack<Pack_type_at<Modular(Row).get((sizeof...(Packs) - 1) - Col), type_at<Col, Packs...>>...>;
 
             // whole array
             template <int... Row>
             static auto render_all(index_sequence<Row...>) 
-            -> Pack<decltype(render_row<Row>(index_sequence_init<DIMENSION>{}))...>;
+            -> pack<decltype(render_row<Row>(index_sequence_init<DIMENSION>{}))...>;
 
             using type = decltype(render_all(index_sequence_init<ELEMS_COUNT>{}));
         };
@@ -1881,8 +1828,8 @@ private:
             static constexpr int DIMENSION = sizeof...(Packs);
             static constexpr int ELEMS_COUNT = (Packs::size() * ... * 1);
 
-            // encode Pack as array of indices
-            // [2, 1, 3]  -->  Pack<A2, B1, C3>
+            // encode pack as array of indices
+            // [2, 1, 3]  -->  pack<A2, B1, C3>
 
             class EncodedPack {
             public:
@@ -1964,15 +1911,15 @@ private:
                 return arr;
             }();
 
-            // each Pack
+            // each pack
             template <int Row, int... Col>
             static auto decoded_Pack(index_sequence<Col...>) 
-            -> Pack<Pack_type_at<encoded[Row][Col], type_at<Col, Packs...>>...>;
+            -> pack<Pack_type_at<encoded[Row][Col], type_at<Col, Packs...>>...>;
 
             // whole array
             template <int... Row>
             static auto render(index_sequence<Row...>) 
-            -> Pack<decltype(decoded_Pack<Row>(index_sequence_init<DIMENSION>{}))...>;
+            -> pack<decltype(decoded_Pack<Row>(index_sequence_init<DIMENSION>{}))...>;
 
             using type = decltype(render(index_sequence_init<ELEMS_COUNT>{}));
         };
@@ -1992,13 +1939,13 @@ using Pack_cartesian_prod = struct_Pack_cartesian_prod::type<Packs...>;
 
 
 // filter
-template <template <typename> typename Trait, typename Pack, typename = template_pass>
+template <template <typename> typename Trait, typename pack, typename = template_pass>
 struct struct_Pack_filter {
     using type = NAUR;
 };
 
 template <template <typename> typename Trait, typename... Ts>
-struct struct_Pack_filter<Trait, Pack<Ts...>, enable_if<same_type<decltype(Trait<_>::value), const bool>>> {
+struct struct_Pack_filter<Trait, pack<Ts...>, enable_if<same_type<decltype(Trait<_>::value), const bool>>> {
 private:
 
     struct version_01
@@ -2021,7 +1968,7 @@ private:
             using type = Accumulator;
         };
 
-        using type = typename filter<Pack<>, Ts...>::type;
+        using type = typename filter<pack<>, Ts...>::type;
     };
 
     struct version_02
@@ -2051,7 +1998,7 @@ private:
 
         template <int... i>
         static auto render(index_sequence<i...>) 
-        -> Pack<type_at<type_index[i], Ts...>...>;
+        -> pack<type_at<type_index[i], Ts...>...>;
 
         using type = decltype(render(index_sequence_init<type_index.size>{}));
     };
@@ -2061,18 +2008,18 @@ public:
     using type = typename version_02::type;
 };
 
-template <template <typename> typename Trait, typename Pack>
-using Pack_filter = typename struct_Pack_filter<Trait, Pack>::type;
+template <template <typename> typename Trait, typename pack>
+using Pack_filter = typename struct_Pack_filter<Trait, pack>::type;
 
 
 // unique pack
-template <typename Pack>
+template <typename pack>
 struct struct_Pack_filter_unique {
     using type = NAUR;
 };
 
 template <typename... Ts>
-struct struct_Pack_filter_unique<Pack<Ts...>> {
+struct struct_Pack_filter_unique<pack<Ts...>> {
 private:
 
     struct Table {
@@ -2106,15 +2053,15 @@ private:
 
     template <int... i>
     static auto render(index_sequence<i...>) 
-    -> Pack<type_at<type_index[i], Ts...>...>;
+    -> pack<type_at<type_index[i], Ts...>...>;
 
 public:
 
     using type = decltype(render(index_sequence_init<type_index.size>{}));
 };
 
-template <typename Pack>
-using Pack_filter_unique = typename struct_Pack_filter_unique<Pack>::type;
+template <typename pack>
+using Pack_filter_unique = typename struct_Pack_filter_unique<pack>::type;
 
 
 // homogeneous pack
@@ -2127,7 +2074,7 @@ private:
 
     template <int... index>
     static auto render(index_sequence<index...>)
-    -> Pack<Alter<index, T>...>;
+    -> pack<Alter<index, T>...>;
 
 public:
 
@@ -2139,25 +2086,25 @@ using Homogeneous_Pack = typename struct_Homogeneous_Pack<count, T>::type;
 
 
 // is prefix pack
-template <typename Prefix_Pack, typename Pack>
+template <typename Prefix_Pack, typename pack>
 struct struct_Pack_is_prefix {
     static constexpr bool value = false;
 };
 
 template <typename... Prefix, typename... Types>
-struct struct_Pack_is_prefix<Pack<Prefix...>, Pack<Types...>> {
+struct struct_Pack_is_prefix<pack<Prefix...>, pack<Types...>> {
 private:
 
     static constexpr int prefix_padding = (sizeof...(Types) > sizeof...(Prefix))? 
     (sizeof...(Types) - sizeof...(Prefix)) : (0);
-    using Padded_Prefix = Pack_concat<Pack<Prefix...>, Homogeneous_Pack<prefix_padding, NAUR>>;
+    using Padded_Prefix = Pack_concat<pack<Prefix...>, Homogeneous_Pack<prefix_padding, NAUR>>;
 
     static constexpr int types_padding = (sizeof...(Prefix) > sizeof...(Types))? 
     (sizeof...(Prefix) - sizeof...(Types)) : (0);
-    using Padded_Types = Pack_concat<Pack<Types...>, Homogeneous_Pack<types_padding, NAUR>>;
+    using Padded_Types = Pack_concat<pack<Types...>, Homogeneous_Pack<types_padding, NAUR>>;
 
     template <typename... Padded_Prefix, typename... Padded_Types>
-    static constexpr bool eval(Pack<Padded_Prefix...>, Pack<Padded_Types...>)
+    static constexpr bool eval(pack<Padded_Prefix...>, pack<Padded_Types...>)
     {
         if (sizeof...(Padded_Types) > sizeof...(Types))
             return false;
@@ -2176,8 +2123,8 @@ public:
     static constexpr bool value = eval(Padded_Prefix{}, Padded_Types{});
 };
 
-template <typename Prefix_Pack, typename Pack>
-static constexpr bool Pack_is_prefix = struct_Pack_is_prefix<Prefix_Pack, Pack>::value;
+template <typename Prefix_Pack, typename pack>
+static constexpr bool Pack_is_prefix = struct_Pack_is_prefix<Prefix_Pack, pack>::value;
 
 
 template <typename T>
@@ -2187,40 +2134,6 @@ struct struct_no_type_deduction {
 
 template <typename T>
 using no_type_deduction = typename struct_no_type_deduction<T>::type;
-
-#pragma endregion
-/////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////
-#pragma region move
-
-template <typename T>
-constexpr remove_reference<T>&& mov(T& obj) noexcept
-{
-    return static_cast<remove_reference<T>&&>(obj);
-}
-
-template <typename T>
-constexpr T&& forward(remove_reference<T>& forward_args) noexcept //always takes lvalue (valriables and lvalue reference return)
-{
-    return static_cast<T&&>(forward_args);
-}
-
-template <typename T>
-constexpr T&& forward(remove_reference<T>&& forward_args) noexcept //always takes rvalue (literals, constructors, and return values)
-{
-    static_assert(!is_lvalue_reference<T>, "bad forward call: 'forward_args' should be an lvalue reference");
-    return static_cast<T&&>(forward_args);
-}
-
-[[noreturn]] inline void unreachable() noexcept
-{
-    #if defined(__GNUC__) || defined(__clang__)
-    __builtin_unreachable();
-    #elif defined(_MSC_VER)
-    __assume(0);
-    #endif
-}
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////

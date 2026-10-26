@@ -118,7 +118,7 @@ public:
         is_trivially_constructible_from<T, Arg&&> && is_trivially_destructible<T> &&
         !is_lvalue_reference<T>
     )
-    : value(val), _isOK(true) {}
+    : value(static_cast<Arg&&>(val)), _isOK(true) {}
 
     template <typename Arg>
     constexpr Opt(True, Arg&& val) 
@@ -139,7 +139,7 @@ public:
     : ptr(&val) {}
 
     template <typename Arg>
-    Opt(True, Arg&& val)
+    /* constexpr */ Opt(True, Arg&& val)
     requires (
         !same_type<T, void> && 
         is_convertible_from<T, Arg&&> &&
@@ -147,7 +147,7 @@ public:
     )
     : _isOK(true)
     {
-        ::new (&value) T { mnc::forward<Arg>(val) };
+        ::new (&value) T { static_cast<Arg&&>(val) };
     }
 
     constexpr Opt(True) 
@@ -161,10 +161,10 @@ public:
         is_convertible_from<E, Arg&&> &&
         is_trivially_constructible_from<E, Arg&&> && is_trivially_destructible<E>
     )
-    : error(err), _isOK(false) {}
+    : error(static_cast<Arg&&>(err)), _isOK(false) {}
 
     template <typename Arg>
-    Opt(False, Arg&& err)
+    /* constexpr */ Opt(False, Arg&& err)
     requires (
         !same_type<E, void> && 
         is_convertible_from<E, Arg&&> &&
@@ -172,7 +172,7 @@ public:
     )
     : _isOK(false)
     {
-        ::new (&error) E { mnc::forward<Arg>(err) };
+        ::new (&error) E { static_cast<Arg&&>(err) };
     }
 
     constexpr Opt(False) 
@@ -189,19 +189,22 @@ public:
         (same_type<E, void> || is_trivially_copy_constructible<E>)
     ) = default;
 
-    Opt(Opt const& other)
+    /* constexpr */ Opt(Opt const& other)
     requires (
         (!same_type<T, void> && !is_trivially_copy_constructible<T> ||
         !same_type<E, void> && !is_trivially_copy_constructible<E>) &&
-        is_copy_constructible<T>
+        (is_copy_constructible<T> || same_type<T, void>)
     )
     : _isOK(other._isOK)
     {
-        if constexpr (!same_type<T, void> && !is_trivially_copy_constructible<T>) {
+        if constexpr (!same_type<T, void> && !is_lvalue_reference<T>) {
             if (_isOK) ::new (&value) T { other.value };
         }
-        
-        if constexpr (!same_type<E, void> && !is_trivially_copy_constructible<E>) {
+        else if constexpr (!same_type<T, void> && is_lvalue_reference<T>) {
+            if (_isOK) ptr = other.ptr;
+        }
+
+        if constexpr (!same_type<E, void>) {
             if (!_isOK) ::new (&error) E { other.error };
         }
     }
@@ -212,18 +215,21 @@ public:
         (same_type<E, void> || is_trivially_move_constructible<E>)
     ) = default;
 
-    Opt(Opt&& other)
+    /* constexpr */ Opt(Opt&& other)
     requires (
         (!same_type<T, void> && !is_trivially_move_constructible<T>) ||
         (!same_type<E, void> && !is_trivially_move_constructible<E>)
     )
     : _isOK(other._isOK)
     {
-        if constexpr (!same_type<T, void> && !is_trivially_move_constructible<T>) {
+        if constexpr (!same_type<T, void> && !is_lvalue_reference<T>) {
             if (_isOK) ::new (&value) T { static_cast<T&&>(other.value) };
         }
+        else if constexpr (!same_type<T, void> && is_lvalue_reference<T>) {
+            if (_isOK) ptr = other.ptr;
+        }
 
-        if constexpr (!same_type<E, void> && !is_trivially_move_constructible<E>) {
+        if constexpr (!same_type<E, void>) {
             if (!_isOK) ::new (&error) E { static_cast<E&&>(other.error) };
         }
     }
@@ -234,7 +240,7 @@ public:
         (same_type<E, void> || is_trivially_destructible<E>)
     ) = default;
 
-    ~Opt()
+    /* constexpr */ ~Opt()
     requires (
         (!same_type<T, void> && !is_trivially_destructible<T>) ||
         (!same_type<E, void> && !is_trivially_destructible<E>)
@@ -255,11 +261,11 @@ public:
         (is_trivially_copy_constructible<E> || same_type<E, void>)
     ) = default;
 
-    Opt& operator=(Opt const& other)
+    /* constexpr */ Opt& operator=(Opt const& other)
     requires (
         (!is_trivially_copy_constructible<T> && !same_type<T, void> ||
         !is_trivially_copy_constructible<E> && !same_type<E, void>) &&
-        is_copy_constructible<T>
+        (is_copy_constructible<T> || same_type<T, void>)
     )
     {
         if (this == &other)
@@ -279,10 +285,13 @@ public:
         /// COPY CONSTRUCTOR
         _isOK = other._isOK;
         {
-            if constexpr (!same_type<T, void>) {
+            if constexpr (!same_type<T, void> && !is_lvalue_reference<T>) {
                 if (_isOK) ::new (&value) T { other.value };
             }
-            
+            else if constexpr (!same_type<T, void> && is_lvalue_reference<T>) {
+                if (_isOK) ptr = other.ptr;
+            }
+
             if constexpr (!same_type<E, void>) {
                 if (!_isOK) ::new (&error) E { other.error };
             }
@@ -297,7 +306,7 @@ public:
         (is_trivially_move_constructible<E> || same_type<E, void>)
     ) = default;
 
-    Opt& operator=(Opt&& other)
+    /* constexpr */ Opt& operator=(Opt&& other)
     requires (
         (!is_trivially_move_constructible<T> && !same_type<T, void>) ||
         (!is_trivially_move_constructible<E> && !same_type<E, void>)
@@ -320,8 +329,11 @@ public:
         /// MOVE CONSTRUCTOR
         _isOK = other._isOK;
         {
-            if constexpr (!same_type<T, void>) {
+            if constexpr (!same_type<T, void> && !is_lvalue_reference<T>) {
                 if (_isOK) ::new (&value) T { static_cast<T&&>(other.value) };
+            }
+            else if constexpr (!same_type<T, void> && is_lvalue_reference<T>) {
+                if (_isOK) ptr = other.ptr;
             }
 
             if constexpr (!same_type<E, void>) {
@@ -331,18 +343,6 @@ public:
 
         return *this;
     }
-
-private:
-
-    constexpr bool isOK() const
-    {
-        if constexpr (is_lvalue_reference<T> && same_type<E, void>)
-            return ptr != nullptr;
-        else
-            return _isOK;
-    }
-
-public:
 
     constexpr Opt clone() const
     requires (is_copy_constructible<T>)
@@ -354,6 +354,16 @@ public:
     constexpr bool operator!=(True) const { return !isOK(); }
     constexpr bool operator==(False) const { return !isOK(); }
     constexpr bool operator!=(False) const { return isOK(); }
+
+private:
+
+    constexpr bool isOK() const
+    {
+        if constexpr (is_lvalue_reference<T> && same_type<E, void>)
+            return ptr != nullptr;
+        else
+            return _isOK;
+    }
 
     ////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////// fn: match ///////////////////////////////
@@ -423,66 +433,66 @@ private:
 public:
 
     template <
-        typename Branch_True, 
-        typename Branch_False,
-        typename Ret = return_type<Branch_True&&, Sig<_, True, Ref<T>>>
+        typename Fn1, 
+        typename Fn2,
+        typename Ret = return_type<Fn1&&, Sig<_, True, Ref<T>>>
     >
-    constexpr Ret match(Branch_True&& fn1, Branch_False&& fn2) 
+    constexpr Ret match(Fn1&& branch_true, Fn2&& branch_false) 
     requires (
         !same_type<Ret, NAUR> &&
         same_type<
-            return_type<Branch_True&&, Sig<_, True, Ref<T>>>,
-            return_type<Branch_False&&, Sig<_, False, Ref<E>>>
+            return_type<Fn1&&, Sig<_, True, Ref<T>>>,
+            return_type<Fn2&&, Sig<_, False, Ref<E>>>
         >
     )
     {
         if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>) 
-                return fn1(True{}, value);
+                return branch_true(True{}, value);
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return fn1(True{}, *ptr);
+                return branch_true(True{}, *ptr);
             else
-                return fn1(True{});
+                return branch_true(True{});
         }
         else
         {
             if constexpr (!same_type<E, void>)
-                return fn2(False{}, error);
+                return branch_false(False{}, error);
             else
-                return fn2(False{});
+                return branch_false(False{});
         }
     }
 
     template <
-        typename Branch_True, 
-        typename Branch_False,
-        typename Ret = return_type<Branch_True&&, Sig<_, True, Ref<T const>>>
+        typename Fn1, 
+        typename Fn2,
+        typename Ret = return_type<Fn1&&, Sig<_, True, Ref<T const>>>
     >
-    constexpr Ret match(Branch_True&& fn1, Branch_False&& fn2) const 
+    constexpr Ret match(Fn1&& branch_true, Fn2&& branch_false) const 
     requires (
         !same_type<Ret, NAUR> &&
         same_type<
-            return_type<Branch_True&&, Sig<_, True, Ref<T const>>>,
-            return_type<Branch_False&&, Sig<_, False, Ref<E const>>>
+            return_type<Fn1&&, Sig<_, True, Ref<T const>>>,
+            return_type<Fn2&&, Sig<_, False, Ref<E const>>>
         >
     )
     {
         if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>) 
-                return fn1(True{}, value);
+                return branch_true(True{}, value);
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return fn1(True{}, *ptr);
+                return branch_true(True{}, *ptr);
             else
-                return fn1(True{});
+                return branch_true(True{});
         }
         else
         {
             if constexpr (!same_type<E, void>)
-                return fn2(False{}, error);
+                return branch_false(False{}, error);
             else
-                return fn2(False{});
+                return branch_false(False{});
         }
     }
 
@@ -497,7 +507,7 @@ public:
             __throw::OPT_unwrap_on_False_state();
 
         if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-            return *&value;
+            return (value);  // () preserves reference
         else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
             return *ptr;
     }
@@ -508,7 +518,7 @@ public:
             __throw::OPT_unwrap_on_False_state();
 
         if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-            return *&value;
+            return (value);  // () preserves reference
         else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
             return *ptr;
     }
@@ -524,6 +534,17 @@ public:
             return *ptr;
     }
 
+    constexpr decltype(auto) unwrap() const&& 
+    {
+        if (!isOK())
+            __throw::OPT_unwrap_on_False_state();
+
+        if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
+            return static_cast<T const&&>(value);
+        else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
+            return *ptr;
+    }
+
     ////////////////////////////////////////////////////////////////////////////
     /////////////////////////////// fn: unwrap_err /////////////////////////////
     ////////////////////////////////////////////////////////////////////////////
@@ -535,7 +556,7 @@ public:
             __throw::OPT_unwrap_err_on_True_state();
 
         if constexpr (!same_type<E, void>)
-            return *&error;
+            return (error);  // () preserves reference
     }
 
     constexpr decltype(auto) unwrap_err() const& 
@@ -544,7 +565,7 @@ public:
             __throw::OPT_unwrap_err_on_True_state();
 
         if constexpr (!same_type<E, void>)
-            return *&error;
+            return (error);  // () preserves reference
     }
 
     constexpr decltype(auto) unwrap_err() && 
@@ -556,14 +577,23 @@ public:
             return static_cast<E&&>(error);
     }
 
+    constexpr decltype(auto) unwrap_err() const&& 
+    {
+        if (isOK())
+            __throw::OPT_unwrap_err_on_True_state();
+        
+        if constexpr (!same_type<E, void>)
+            return static_cast<E const&&>(error);
+    }
+
     ////////////////////////////////////////////////////////////////////////////
     //////////////////////////////// fn: value_or //////////////////////////////
     ////////////////////////////////////////////////////////////////////////////
 
     //
-    template <typename Fallback>
-    constexpr T value_or(Fallback&& fallback_val) const& 
-    requires (!same_type<T, void> && is_copy_constructible<T> && is_convertible_from<T, Fallback&&>)
+    template <typename Arg>
+    constexpr T value_or(Arg&& fallback) const& 
+    requires (!same_type<T, void> && is_copy_constructible<T> && is_convertible_from<T, Arg&&>)
     {
         if (isOK()) 
         {
@@ -574,13 +604,13 @@ public:
         }
         else
         {
-            return forward<Fallback>(fallback_val);
+            return static_cast<Arg&&>(fallback);
         }
     }
 
-    template <typename Fallback>
-    constexpr T value_or(Fallback&& fallback_val) && 
-    requires (!same_type<T, void> && is_convertible_from<T, Fallback&&>)
+    template <typename Arg>
+    constexpr T value_or(Arg&& fallback) && 
+    requires (!same_type<T, void> && is_convertible_from<T, Arg&&>)
     {
         if (isOK())
         {
@@ -591,7 +621,7 @@ public:
         }
         else
         {
-            return forward<Fallback>(fallback_val);
+            return static_cast<Arg&&>(fallback);
         }
     }
 
@@ -599,10 +629,10 @@ public:
     ///////////////////////////// fn: value_or_call ////////////////////////////
     ////////////////////////////////////////////////////////////////////////////
 
-    //
-    template <typename Fallback>
-    constexpr T value_or_call(Fallback&& fallback_fn) const& 
-    requires (!same_type<T, void> && is_copy_constructible<T> && is_callable<Fallback&&, T()>)
+    // fallback: (none) -> T
+    template <typename Fn>
+    constexpr T value_or_call(Fn&& fallback) const& 
+    requires (!same_type<T, void> && is_copy_constructible<T> && is_callable<Fn&&, T()>)
     {
         if (isOK())
         {
@@ -613,13 +643,14 @@ public:
         }
         else
         {
-            return fallback_fn();
+            return fallback();
         }
     }
 
-    template <typename Fallback>
-    constexpr T value_or_call(Fallback&& fallback_fn) && 
-    requires (!same_type<T, void> && is_callable<Fallback&&, T()>)
+    // fallback: (none) -> T
+    template <typename Fn>
+    constexpr T value_or_call(Fn&& fallback) && 
+    requires (!same_type<T, void> && is_callable<Fn&&, T()>)
     {
         if (isOK())
         {
@@ -630,7 +661,7 @@ public:
         }
         else
         {
-            return fallback_fn();
+            return fallback();
         }
     }
 
@@ -652,22 +683,22 @@ private:
 
 public:
 
-    // fn: T -> T'
+    // mapper: T -> T'
     template <
-        typename Mapper,
-        typename Out = return_type<Mapper&&, Sig<_, Ref<T const>>>
+        typename Fn,
+        typename Out = return_type<Fn&&, Sig<_, Ref<T const>>>
     >
-    constexpr Opt<Out, E> map(Mapper&& fn) const& 
+    constexpr Opt<Out, E> map(Fn&& mapper) const& 
     requires (!same_type<Out, NAUR> && (is_copy_constructible<T> || same_type<T, void>))
     {
         if (isOK())
         {
             if constexpr (!same_type<Out, void> && !same_type<T, void> && !is_lvalue_reference<T>)
-                return { True{}, fn(value) };
+                return { True{}, mapper(value) };
             else if constexpr (!same_type<Out, void> && !same_type<T, void> && is_lvalue_reference<T>)
-                return { True{}, fn(*ptr) };
+                return { True{}, mapper(*ptr) };
             else if constexpr (!same_type<Out, void> && same_type<T, void>)
-                return { True{}, fn() };
+                return { True{}, mapper() };
             else
                 return { True{} };
         }
@@ -680,22 +711,22 @@ public:
         }
     }
 
-    // fn: T -> T'
+    // mapper: T -> T'
     template <
-        typename Mapper,
-        typename Out = return_type<Mapper&&, Sig<_, Rvalue<T>>>
+        typename Fn,
+        typename Out = return_type<Fn&&, Sig<_, Rvalue<T>>>
     >
-    constexpr Opt<Out, E> map(Mapper&& fn) && 
+    constexpr Opt<Out, E> map(Fn&& mapper) && 
     requires (!same_type<Out, NAUR>)
     {
         if (isOK())
         {
             if constexpr (!same_type<Out, void> && !same_type<T, void> && !is_lvalue_reference<T>)
-                return { True{}, fn(static_cast<T&&>(value)) };
+                return { True{}, mapper(static_cast<T&&>(value)) };
             else if constexpr (!same_type<Out, void> && !same_type<T, void> && is_lvalue_reference<T>)
-                return { True{}, fn(*ptr) };
+                return { True{}, mapper(*ptr) };
             else if constexpr (!same_type<Out, void> && same_type<T, void>)
-                return { True{}, fn() };
+                return { True{}, mapper() };
             else
                 return { True{} };
         }
@@ -712,12 +743,12 @@ public:
     //////////////////////////////// fn: map_err ///////////////////////////////
     ////////////////////////////////////////////////////////////////////////////
 
-    // fn: E -> E'
+    // mapper: E -> E'
     template <
-        typename Mapper,
-        typename Out = return_type<Mapper&&, Sig<_, Ref<E const>>>
+        typename Fn,
+        typename Out = return_type<Fn&&, Sig<_, Ref<E const>>>
     >
-    constexpr Opt<T, Out> map_err(Mapper&& fn) const& 
+    constexpr Opt<T, Out> map_err(Fn&& mapper) const& 
     requires (!same_type<Out, NAUR> && is_copy_constructible<T>)
     {
         if (isOK())
@@ -732,20 +763,20 @@ public:
         else
         {
             if constexpr (!same_type<Out, void> && !same_type<E, void>)
-                return { False{}, fn(error) };
+                return { False{}, mapper(error) };
             else if constexpr (!same_type<Out, void> && same_type<E, void>)
-                return { False{}, fn() };
+                return { False{}, mapper() };
             else
                 return { False{} };
         }
     }
 
-    // fn: E -> E'
+    // mapper: E -> E'
     template <
-        typename Mapper,
-        typename Out = return_type<Mapper&&, Sig<_, Rvalue<E>>>
+        typename Fn,
+        typename Out = return_type<Fn&&, Sig<_, Rvalue<E>>>
     >
-    constexpr Opt<T, Out> map_err(Mapper&& fn) && 
+    constexpr Opt<T, Out> map_err(Fn&& mapper) && 
     requires (!same_type<Out, NAUR>)
     {
         if (isOK())
@@ -760,9 +791,9 @@ public:
         else
         {
             if constexpr (!same_type<Out, void> && !same_type<E, void>)
-                return { False{}, fn(static_cast<E&&>(error)) };
+                return { False{}, mapper(static_cast<E&&>(error)) };
             else if constexpr (!same_type<Out, void> && same_type<E, void>)
-                return { False{}, fn() };
+                return { False{}, mapper() };
             else
                 return { False{} };
         }
@@ -788,12 +819,12 @@ private:
 
 public:
 
-    // fn: T -> Opt<T', E>
+    // chain: T -> Opt<T', E>
     template <
-        typename Chain,
-        typename Out = return_type<Chain&&, Sig<_, Ref<T const>>>
+        typename Fn,
+        typename Out = return_type<Fn&&, Sig<_, Ref<T const>>>
     >
-    constexpr Out and_then(Chain&& fn) const&
+    constexpr Out and_then(Fn&& chain) const&
     requires (
         !same_type<typename AsOpt<Out>::val, NAUR> && 
         same_type<typename AsOpt<Out>::err, E> &&
@@ -802,11 +833,11 @@ public:
         if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-                return fn(value);
+                return chain(value);
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return fn(*ptr);
+                return chain(*ptr);
             else
-                return fn();
+                return chain();
         }
         else
         {
@@ -817,12 +848,12 @@ public:
         }
     }
 
-    // fn: T -> Opt<T', E>
+    // chain: T -> Opt<T', E>
     template <
-        typename Chain,
-        typename Out = return_type<Chain&&, Sig<_, Rvalue<T>>>
+        typename Fn,
+        typename Out = return_type<Fn&&, Sig<_, Rvalue<T>>>
     >
-    constexpr Out and_then(Chain&& fn) &&
+    constexpr Out and_then(Fn&& chain) &&
     requires (
         !same_type<typename AsOpt<Out>::val, NAUR> && 
         same_type<typename AsOpt<Out>::err, E>)
@@ -830,11 +861,11 @@ public:
         if (isOK())
         {
             if constexpr (!same_type<T, void> && !is_lvalue_reference<T>)
-                return fn(static_cast<T&&>(value));
+                return chain(static_cast<T&&>(value));
             else if constexpr (!same_type<T, void> && is_lvalue_reference<T>)
-                return fn(*ptr);
+                return chain(*ptr);
             else
-                return fn();
+                return chain();
         }
         else
         {
@@ -849,12 +880,12 @@ public:
     ///////////////////////////////// fn: or_else //////////////////////////////
     ////////////////////////////////////////////////////////////////////////////
 
-    // fn: E -> Opt<T, E'>
+    // err_chain: E -> Opt<T, E'>
     template <
-        typename ErrChain,
-        typename Out = return_type<ErrChain&&, Sig<_, Ref<E const>>>
+        typename Fn,
+        typename Out = return_type<Fn&&, Sig<_, Ref<E const>>>
     >
-    constexpr Out or_else(ErrChain&& fn) const&
+    constexpr Out or_else(Fn&& err_chain) const&
     requires (
         same_type<typename AsOpt<Out>::val, T> &&
         !same_type<typename AsOpt<Out>::err, NAUR> &&
@@ -872,18 +903,18 @@ public:
         else
         {
             if constexpr (!same_type<E, void>)
-                return fn(error);
+                return err_chain(error);
             else
-                return fn();
+                return err_chain();
         }
     }
 
-    // fn: E -> Opt<T, E'>
+    // err_chain: E -> Opt<T, E'>
     template <
-        typename ErrChain,
-        typename Out = return_type<ErrChain&&, Sig<_, Rvalue<E>>>
+        typename Fn,
+        typename Out = return_type<Fn&&, Sig<_, Rvalue<E>>>
     >
-    constexpr Out or_else(ErrChain&& fn) &&
+    constexpr Out or_else(Fn&& err_chain) &&
     requires (
         same_type<typename AsOpt<Out>::val, T> &&
         !same_type<typename AsOpt<Out>::err, NAUR>)
@@ -900,9 +931,9 @@ public:
         else
         {
             if constexpr (!same_type<E, void>)
-                return fn(static_cast<E&&>(error));
+                return err_chain(static_cast<E&&>(error));
             else
-                return fn();
+                return err_chain();
         }
     }
 
@@ -910,49 +941,49 @@ public:
     ///////////////////////////////// fn: filter ///////////////////////////////
     ////////////////////////////////////////////////////////////////////////////
 
-    // fn: T -> bool
-    template <typename Predicate>
-    constexpr Opt filter(Predicate&& fn) const&
+    // predicate: T -> bool
+    template <typename Fn>
+    constexpr Opt filter(Fn&& predicate) const&
     requires (
         same_type<E, void> && 
-        is_callable<Predicate&&, Sig<bool, Ref<T const>>> &&
+        is_callable<Fn&&, Sig<bool, Ref<T const>>> &&
         is_copy_constructible<T> &&
         !same_type<T, void>)
     {
         if constexpr (!is_lvalue_reference<T>)
         {
-            if (isOK() && fn(value)) 
+            if (isOK() && predicate(value)) 
                 return { True{}, value };
             else
                 return { False{} };
         }
         else
         {
-            if (isOK() && fn(*ptr)) 
+            if (isOK() && predicate(*ptr)) 
                 return { True{}, *ptr };
             else
                 return { False{} };
         }
     }
 
-    // fn: T -> bool
-    template <typename Predicate>
-    constexpr Opt filter(Predicate&& fn) &&
+    // predicate: T -> bool
+    template <typename Fn>
+    constexpr Opt filter(Fn&& predicate) &&
     requires (
         same_type<E, void> && 
-        is_callable<Predicate&&, Sig<bool, Ref<T const>>> &&
+        is_callable<Fn&&, Sig<bool, Ref<T const>>> &&
         !same_type<T, void>)
     {
         if constexpr (!is_lvalue_reference<T>)
         {
-            if (isOK() && fn(value)) 
+            if (isOK() && predicate(value)) 
                 return { True{}, static_cast<T&&>(value) };
             else
                 return { False{} };
         }
         else
         {
-            if (isOK() && fn(*ptr)) 
+            if (isOK() && predicate(*ptr)) 
                 return { True{}, *ptr };
             else
                 return { False{} };
@@ -966,6 +997,262 @@ using Option = Opt<T, void>;
 template <typename T, typename E>
 using Result = Opt<T, E>;
 
+/////////////////////////////////////////////////////////////////////////////
+////////////////////////////////// DEBUG ////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+#if 1
+
+struct Trivial {};
+
+struct NonTrivial {
+    NonTrivial() {}
+    NonTrivial(NonTrivial const&) {}
+    NonTrivial(NonTrivial&&) {}
+    ~NonTrivial() {}
+};
+
+struct NoCopy {
+    NoCopy() {}
+    NoCopy(NoCopy const&) = delete;
+    NoCopy(NoCopy&&) {}
+};
+
+
+// section 1
+template class Opt<Trivial, Trivial>;
+template class Opt<Trivial, NonTrivial>;
+template class Opt<Trivial, void>;
+
+// section 2
+template class Opt<NonTrivial, Trivial>;
+template class Opt<NonTrivial, NonTrivial>;
+template class Opt<NonTrivial, void>;
+
+// section 3
+template class Opt<NoCopy, Trivial>;
+template class Opt<NoCopy, NonTrivial>;
+template class Opt<NoCopy, void>;
+
+// section 4
+template class Opt<int&, Trivial>;
+template class Opt<int&, NonTrivial>;
+template class Opt<int&, void>;
+
+// section 5
+template class Opt<void, Trivial>;
+template class Opt<void, NonTrivial>;
+template class Opt<void, void>;
+
+consteval void test1()
+{
+    // section 1
+    {
+        using T = Trivial;
+        using E = Trivial;
+
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{}, T{} };
+        TYPE opt2 = { False{}, E{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    {
+        using T = Trivial;
+        using E = NonTrivial;
+
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{}, T{} };
+        TYPE opt2 = { False{}, E{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    {
+        using T = Trivial;
+        using E = void;
+
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{}, T{} };
+        TYPE opt2 = { False{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    // section 2
+    {
+        using T = NonTrivial;
+        using E = Trivial;
+        
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{}, T{} };
+        TYPE opt2 = { False{}, E{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    {
+        using T = NonTrivial;
+        using E = NonTrivial;
+        
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{}, T{} };
+        TYPE opt2 = { False{}, E{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    {
+        using T = NonTrivial;
+        using E = void;
+        
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{}, T{} };
+        TYPE opt2 = { False{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    // section 3
+    {
+        using T = NoCopy;
+        using E = Trivial;
+        
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{}, T{} };
+        TYPE opt2 = { False{}, E{} };
+        //TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        //opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    {
+        using T = NoCopy;
+        using E = NonTrivial;
+        
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{}, T{} };
+        TYPE opt2 = { False{}, E{} };
+        //TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        //opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    {
+        using T = NoCopy;
+        using E = void;
+        
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{}, T{} };
+        TYPE opt2 = { False{} };
+        //TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        //opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    // section 4
+    {
+        using T = int&;
+        using E = Trivial;
+        
+        using TYPE = Opt<T, E>;
+        int DUMMY;
+        TYPE opt1 = { True{}, DUMMY };
+        TYPE opt2 = { False{}, E{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    {
+        using T = int&;
+        using E = NonTrivial;
+        
+        using TYPE = Opt<T, E>;
+        int DUMMY;
+        TYPE opt1 = { True{}, DUMMY };
+        TYPE opt2 = { False{}, E{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    {
+        using T = int&;
+        using E = void;
+        
+        using TYPE = Opt<T, E>;
+        int DUMMY;
+        TYPE opt1 = { True{}, DUMMY };
+        TYPE opt2 = { False{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+
+    // section 5
+    {
+        using T = void;
+        using E = Trivial;
+        
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{} };
+        TYPE opt2 = { False{}, E{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    {
+        using T = void;
+        using E = NonTrivial;
+        
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{} };
+        TYPE opt2 = { False{}, E{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+
+    {
+        using T = void;
+        using E = void;
+        
+        using TYPE = Opt<T, E>;
+        TYPE opt1 = { True{} };
+        TYPE opt2 = { False{} };
+        TYPE opt3 = opt1;
+        TYPE opt4 = static_cast<TYPE&&>(opt1);
+        opt1 = opt2;
+        opt1 = static_cast<TYPE&&>(opt2);
+    }
+}
+
+
+
+#endif
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////

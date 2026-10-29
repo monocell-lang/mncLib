@@ -136,13 +136,7 @@ enum class ParEqual: byte {
 /////////////////////////////////////////////////////////////////////////////
 #pragma region Comparator
 
-template <typename T>
-struct struct_orderingof;
-
-template <typename T>
-static constexpr Ordering orderingof = struct_orderingof<T>::value;
-
-template <typename T, Ordering Trait = orderingof<T>>
+template <typename T, Ordering Trait>
 class Comparator;
 
 template <typename T>
@@ -163,29 +157,6 @@ static constexpr bool has_Equal = requires (T const& left, T const& right) {
 template <typename T>
 static constexpr bool has_ParEqual = requires (T const& left, T const& right) {
     requires (same_type<decltype(Comparator<T, Ordering::ParEqual>::compare(left, right)), ParEqual>);
-};
-
-template <typename T>
-struct struct_orderingof {
-private:
-
-    static constexpr Ordering compute()
-    {
-        if (has_Order<T>)
-            return Ordering::Order;
-        else if (has_ParOrder<T>)
-            return Ordering::ParOrder;
-        else if (has_Equal<T>)
-            return Ordering::Equal;
-        else if (has_ParEqual<T>)
-            return Ordering::ParEqual;
-        else
-            return static_cast<Ordering>(5);
-    }
-
-public:
-
-    static constexpr Ordering value = compute();
 };
 
 template <typename T>
@@ -364,6 +335,21 @@ public:
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 #pragma region queries
+
+template <typename T>
+static constexpr Ordering orderingof = []
+{
+    if (has_Order<T>)
+        return Ordering::Order;
+    else if (has_ParOrder<T>)
+        return Ordering::ParOrder;
+    else if (has_Equal<T>)
+        return Ordering::Equal;
+    else if (has_ParEqual<T>)
+        return Ordering::ParEqual;
+    else
+        return static_cast<Ordering>(4);
+}();
 
 template <Ordering>
 struct struct_order_type {

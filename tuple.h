@@ -20,10 +20,7 @@ private:
     template <typename... Tys>
     friend class Tuple;
 
-    friend class tuple;
-
-    template <typename T, Ordering Trait>
-    friend class Comparator;
+    friend class Comparator<Tuple<Ts...>, (orderingof<Ts> + ... + Ordering::Order)>;
 
     /////////////////////////////////////////////////////////////////////////////
     //////////////////////// stage 1: alignment sorting /////////////////////////
@@ -387,16 +384,17 @@ public:
 private:
 
     static constexpr Ordering this_ordering = (orderingof<Ts> + ... + Ordering::Order);
-    using This_Order = order_type<this_ordering>;
+    using This_Order = OrderType<this_ordering>;
 
     template <typename Other, int... _Index>
     static constexpr This_Order compare(Tuple const& left, Other const& right, index_sequence<_Index...>)
     {
         /*
-        *   Equal, Equal, Less, ...         = Less
-        *   Equal, Equal, Greater, ...      = Greater
-        *   Equal, Equal, UnEqual, ...      = UnEqual
-        *   Equal, Equal, Equal, ..., Equal = Equal
+        *   Equal, Equal, Less, ...    = Less
+        *   Equal, Equal, Greater, ... = Greater
+        *   Equal, Equal, UnEqual, ... = UnEqual
+        *   Equal, Equal,  ..., Equal  = Equal
+        *   Equal, Less, UnEqual, ...  = UnEqual
         */
 
         This_Order result = This_Order::Equal;
@@ -405,13 +403,48 @@ private:
         (
             (result = [](This_Order result, Tuple const& left, Other const& right) 
             {
-                if (result != This_Order::Equal)
-                    return result;
+                if constexpr (this_ordering != Ordering::ParOrder)
+                {
+                    if (result != This_Order::Equal)
+                        return result;
 
-                return Comparator<Ts, this_ordering>::compare(
-                    left.template get<_Index>(),
-                    right.template get<_Index>()
-                );
+                    return Comparator<Ts, this_ordering>::compare(
+                        left.template get<_Index>(),
+                        right.template get<_Index>()
+                    );
+                }
+                else
+                {
+                    switch (result)
+                    {
+                        case ParOrder::Equal:
+                        {
+                            return Comparator<Ts, this_ordering>::compare(
+                                left.template get<_Index>(),
+                                right.template get<_Index>()
+                            );
+                        }
+
+                        case ParOrder::Greater: [[fallthrough]];
+                        case ParOrder::Less:
+                        {
+                            ParOrder cmp = Comparator<Ts, this_ordering>::compare(
+                                left.template get<_Index>(),
+                                right.template get<_Index>()
+                            );
+
+                            if (cmp == ParOrder::UnEqual)
+                                return ParOrder::UnEqual;
+                            else
+                                return result;
+                        }
+
+                        case ParOrder::UnEqual:
+                        {
+                            return result;
+                        }
+                    }
+                }
             }
             (result, left, right)), ...
         );
@@ -563,26 +596,50 @@ private:
     static constexpr decltype(auto) apply(Fn&& fn, Self&& self, index_sequence<_Index...>) {
         return fn(static_cast<Self&&>(self).template get<_Index>()...);
     }
-
-    template <typename... Ts>
-    static constexpr Ordering ordering = (orderingof<Ts> + ... + Ordering::Order);
-
-    template <typename T, Ordering Trait>
-    friend class Comparator;
 };
 
 
 template <typename... Ts>
-class Comparator<Tuple<Ts...>, tuple::ordering<Ts...>> {
-private:
-
-    using This_Order = typename Tuple<Ts...>::This_Order;
-
+requires ((orderingof<Ts> + ... + Ordering::Order) == Ordering::Order)
+class Comparator<Tuple<Ts...>, Ordering::Order> {
 public:
 
-    static constexpr This_Order compare(Tuple<Ts...> const& left, Tuple<Ts...> const& right)
+    static constexpr Order compare(Tuple<Ts...> const& left, Tuple<Ts...> const& right) 
     {
-        return Tuple<Ts...>::compare(left, right, Tuple<Ts...>::this_sequence);
+        return Tuple<Ts...>::compare(left, right, index_sequence_init<sizeof...(Ts)>{});
+    }
+};
+
+template <typename... Ts>
+requires ((orderingof<Ts> + ... + Ordering::Order) == Ordering::ParOrder)
+class Comparator<Tuple<Ts...>, Ordering::ParOrder> {
+public:
+
+    static constexpr ParOrder compare(Tuple<Ts...> const& left, Tuple<Ts...> const& right) 
+    {
+        return Tuple<Ts...>::compare(left, right, index_sequence_init<sizeof...(Ts)>{});
+    }
+};
+
+template <typename... Ts>
+requires ((orderingof<Ts> + ... + Ordering::Order) == Ordering::Equal)
+class Comparator<Tuple<Ts...>, Ordering::Equal> {
+public:
+
+    static constexpr Equal compare(Tuple<Ts...> const& left, Tuple<Ts...> const& right) 
+    {
+        return Tuple<Ts...>::compare(left, right, index_sequence_init<sizeof...(Ts)>{});
+    }
+};
+
+template <typename... Ts>
+requires ((orderingof<Ts> + ... + Ordering::Order) == Ordering::ParEqual)
+class Comparator<Tuple<Ts...>, Ordering::ParEqual> {
+public:
+
+    static constexpr ParEqual compare(Tuple<Ts...> const& left, Tuple<Ts...> const& right) 
+    {
+        return Tuple<Ts...>::compare(left, right, index_sequence_init<sizeof...(Ts)>{});
     }
 };
 

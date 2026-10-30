@@ -239,7 +239,6 @@ public:
     }
 };
 
-
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
@@ -352,32 +351,32 @@ static constexpr Ordering orderingof = []
 }();
 
 template <Ordering>
-struct struct_order_type {
+struct struct_OrderType {
     using type = NAUR;
 };
 
 template <>
-struct struct_order_type<Ordering::Order> {
+struct struct_OrderType<Ordering::Order> {
     using type = Order;
 };
 
 template <>
-struct struct_order_type<Ordering::ParOrder> {
+struct struct_OrderType<Ordering::ParOrder> {
     using type = ParOrder;
 };
 
 template <>
-struct struct_order_type<Ordering::Equal> {
+struct struct_OrderType<Ordering::Equal> {
     using type = Equal;
 };
 
 template <>
-struct struct_order_type<Ordering::ParEqual> {
+struct struct_OrderType<Ordering::ParEqual> {
     using type = ParEqual;
 };
 
 template <Ordering ordering>
-using order_type = typename struct_order_type<ordering>::type;
+using OrderType = typename struct_OrderType<ordering>::type;
 
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////

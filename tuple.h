@@ -425,7 +425,9 @@ private:
                             );
                         }
 
-                        case ParOrder::Greater: [[fallthrough]];
+                        case ParOrder::Greater: 
+                        [[fallthrough]];
+                        
                         case ParOrder::Less:
                         {
                             ParOrder cmp = Comparator<remove_const_reference<Ts>, this_ordering>::compare(
@@ -439,8 +441,10 @@ private:
                                 return result;
                         }
 
-                        case ParOrder::UnEqual: [[fallthrough]];
                         default:
+                        [[fallthrough]];
+                        
+                        case ParOrder::UnEqual: 
                         {
                             return result;
                         }

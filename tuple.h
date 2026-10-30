@@ -20,7 +20,7 @@ private:
     template <typename... Tys>
     friend class Tuple;
 
-    friend class Comparator<Tuple<Ts...>, (orderingof<Ts> + ... + Ordering::Order)>;
+    friend class Comparator<Tuple<Ts...>, (orderingof<remove_const_reference<Ts>> + ... + Ordering::Order)>;
 
     /////////////////////////////////////////////////////////////////////////////
     //////////////////////// stage 1: alignment sorting /////////////////////////
@@ -383,7 +383,7 @@ public:
 
 private:
 
-    static constexpr Ordering this_ordering = (orderingof<Ts> + ... + Ordering::Order);
+    static constexpr Ordering this_ordering = (orderingof<remove_const_reference<Ts>> + ... + Ordering::Order);
     using This_Order = OrderType<this_ordering>;
 
     template <typename Other, int... _Index>
@@ -408,7 +408,7 @@ private:
                     if (result != This_Order::Equal)
                         return result;
 
-                    return Comparator<Ts, this_ordering>::compare(
+                    return Comparator<remove_const_reference<Ts>, this_ordering>::compare(
                         left.template get<_Index>(),
                         right.template get<_Index>()
                     );
@@ -419,7 +419,7 @@ private:
                     {
                         case ParOrder::Equal:
                         {
-                            return Comparator<Ts, this_ordering>::compare(
+                            return Comparator<remove_const_reference<Ts>, this_ordering>::compare(
                                 left.template get<_Index>(),
                                 right.template get<_Index>()
                             );
@@ -428,7 +428,7 @@ private:
                         case ParOrder::Greater: [[fallthrough]];
                         case ParOrder::Less:
                         {
-                            ParOrder cmp = Comparator<Ts, this_ordering>::compare(
+                            ParOrder cmp = Comparator<remove_const_reference<Ts>, this_ordering>::compare(
                                 left.template get<_Index>(),
                                 right.template get<_Index>()
                             );
@@ -458,7 +458,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) &&
         (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
-        (has_ParEqual<Ts> && ...)
+        (has_ParEqual<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator==(Tuple<Tys...> const& other) const
     {
@@ -469,7 +469,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) &&
         (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
-        (has_ParEqual<Ts> && ...)
+        (has_ParEqual<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator!=(Tuple<Tys...> const& other) const
     {
@@ -480,7 +480,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
         (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
-        (has_ParOrder<Ts> && ...)
+        (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator<(Tuple<Tys...> const& other) const
     {
@@ -491,7 +491,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
         (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
-        (has_ParOrder<Ts> && ...)
+        (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator>(Tuple<Tys...> const& other) const
     {
@@ -502,7 +502,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
         (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
-        (has_ParOrder<Ts> && ...)
+        (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator<=(Tuple<Tys...> const& other) const
     {
@@ -514,7 +514,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
         (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
-        (has_ParOrder<Ts> && ...)
+        (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator>=(Tuple<Tys...> const& other) const
     {
@@ -600,7 +600,7 @@ private:
 
 
 template <typename... Ts>
-requires ((orderingof<Ts> + ... + Ordering::Order) == Ordering::Order)
+requires ((orderingof<remove_const_reference<Ts>> + ... + Ordering::Order) == Ordering::Order)
 class Comparator<Tuple<Ts...>, Ordering::Order> {
 public:
 
@@ -611,7 +611,7 @@ public:
 };
 
 template <typename... Ts>
-requires ((orderingof<Ts> + ... + Ordering::Order) == Ordering::ParOrder)
+requires ((orderingof<remove_const_reference<Ts>> + ... + Ordering::Order) == Ordering::ParOrder)
 class Comparator<Tuple<Ts...>, Ordering::ParOrder> {
 public:
 
@@ -622,7 +622,7 @@ public:
 };
 
 template <typename... Ts>
-requires ((orderingof<Ts> + ... + Ordering::Order) == Ordering::Equal)
+requires ((orderingof<remove_const_reference<Ts>> + ... + Ordering::Order) == Ordering::Equal)
 class Comparator<Tuple<Ts...>, Ordering::Equal> {
 public:
 
@@ -633,7 +633,7 @@ public:
 };
 
 template <typename... Ts>
-requires ((orderingof<Ts> + ... + Ordering::Order) == Ordering::ParEqual)
+requires ((orderingof<remove_const_reference<Ts>> + ... + Ordering::Order) == Ordering::ParEqual)
 class Comparator<Tuple<Ts...>, Ordering::ParEqual> {
 public:
 

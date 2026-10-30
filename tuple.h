@@ -434,12 +434,13 @@ private:
                             );
 
                             if (cmp == ParOrder::UnEqual)
-                                return ParOrder::UnEqual;
+                                return cmp;
                             else
                                 return result;
                         }
 
-                        case ParOrder::UnEqual:
+                        case ParOrder::UnEqual: [[fallthrough]];
+                        default:
                         {
                             return result;
                         }
@@ -452,12 +453,25 @@ private:
         return result;
     }
 
+    template <typename T1, typename T2>
+    struct struct_equivalent_type {
+        static constexpr bool value = same_type<remove_const_reference<T1>, remove_const_reference<T2>>;
+    };
+
+    template <typename... Ts1, typename... Ts2>
+    struct struct_equivalent_type<Tuple<Ts1...>, Tuple<Ts2...>> {
+        static constexpr bool value = (struct_equivalent_type<Ts1, Ts2>::value && ...);
+    };
+
+    template <typename T1, typename T2>
+    static constexpr bool equivalent_type = struct_equivalent_type<T1, T2>::value;
+
 public:
 
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) &&
-        (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
         (has_ParEqual<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator==(Tuple<Tys...> const& other) const
@@ -468,7 +482,7 @@ public:
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) &&
-        (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
         (has_ParEqual<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator!=(Tuple<Tys...> const& other) const
@@ -479,7 +493,7 @@ public:
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
-        (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
         (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator<(Tuple<Tys...> const& other) const
@@ -490,7 +504,7 @@ public:
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
-        (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
         (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator>(Tuple<Tys...> const& other) const
@@ -501,7 +515,7 @@ public:
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
-        (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
         (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator<=(Tuple<Tys...> const& other) const
@@ -513,7 +527,7 @@ public:
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
-        (same_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
         (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator>=(Tuple<Tys...> const& other) const

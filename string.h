@@ -822,11 +822,6 @@ public:
         return as_slice().slice(start, max_len);
     }
 
-    constexpr operator Slice() const
-    {
-        return as_slice();
-    }
-
     //////////////////////////////////////////////////////////////////////
     ///////////////////////////// fn: operator[] /////////////////////////
     //////////////////////////////////////////////////////////////////////
@@ -982,9 +977,19 @@ public:
         return *this;
     }
 
+    constexpr String& append(String const& other) &
+    {
+        return append(other.as_slice());
+    }
+
     constexpr String&& append(Slice other) &&
     {
         return static_cast<String&&>(append(other));
+    }
+
+    constexpr String&& append(String const& other) &&
+    {
+        return static_cast<String&&>(append(other.as_slice()));
     }
 
     constexpr String& operator+=(Slice other) &
@@ -992,14 +997,29 @@ public:
         return append(other);
     }
 
+    constexpr String& operator+=(String const& other) &
+    {
+        return append(other.as_slice());
+    }
+
     constexpr String&& operator+=(Slice other) &&
     {
         return static_cast<String&&>(append(other));
     }
 
+    constexpr String&& operator+=(String const& other) &&
+    {
+        return static_cast<String&&>(append(other.as_slice()));
+    }
+
     constexpr String operator+(Slice other) &&
     {
-        return String(static_cast<String&&>(*this).append(other));
+        return String(static_cast<String&&>(append(other)));
+    }
+
+    constexpr String operator+(String const& other) &&
+    {
+        return String(static_cast<String&&>(append(other.as_slice())));
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -1086,9 +1106,19 @@ public:
         return *this;
     }
 
+    constexpr String& insert(ulong at, String const& other) &
+    {
+        return insert(at, other.as_slice());
+    }
+
     constexpr String&& insert(ulong at, Slice other) &&
     {
         return static_cast<String&&>(insert(at, other));
+    }
+
+    constexpr String&& insert(ulong at, String const& other) &&
+    {
+        return static_cast<String&&>(insert(at, other.as_slice()));
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -1226,9 +1256,19 @@ public:
         return *this;
     }
 
+    constexpr String& replace(ulong at, ulong max_range, String const& other) &
+    {
+        return replace(at, max_range, other.as_slice());
+    }
+
     constexpr String&& replace(ulong at, ulong max_range, Slice other) &&
     {
         return static_cast<String&&>(replace(at, max_range, other));
+    }
+
+    constexpr String&& replace(ulong at, ulong max_range, String const& other) &&
+    {
+        return static_cast<String&&>(replace(at, max_range, other.as_slice()));
     }
 
     //////////////////////////////////////////////////////////////////////

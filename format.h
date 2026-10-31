@@ -232,7 +232,7 @@ enum class FormatError: byte {
     MemoryRequestFailed
 };
 
-class CharArr {
+class CharArray {
 private:
 
     char const* data;
@@ -241,13 +241,13 @@ private:
 public:
 
     template <ulong N>
-    constexpr CharArr(char const(&data)[N]): data(data), len(N - 1) {}
-    constexpr CharArr(CharArr const&) = default;
-    constexpr CharArr(CharArr&&) = default;
-    constexpr CharArr& operator=(CharArr const&) = default;
-    constexpr CharArr& operator=(CharArr&&) = default;
-    constexpr CharArr() = delete;
-    constexpr ~CharArr() = default;
+    constexpr CharArray(char const(&data)[N]): data(data), len(N - 1) {}
+    constexpr CharArray(CharArray const&) = default;
+    constexpr CharArray(CharArray&&) = default;
+    constexpr CharArray& operator=(CharArray const&) = default;
+    constexpr CharArray& operator=(CharArray&&) = default;
+    constexpr CharArray() = delete;
+    constexpr ~CharArray() = default;
 
     constexpr char const& operator[](ulong index) const&
     {
@@ -286,7 +286,7 @@ public:
 };
 
 template <typename T>
-static constexpr bool has_buffer_trait = requires (T& buffer, char const* chars, ulong size, char ch, CharArr arr, FormatIR IR) {
+static constexpr bool has_buffer_trait = requires (T& buffer, char const* chars, ulong size, char ch, CharArray arr, FormatIR IR) {
     requires (same_type<decltype(buffer.write(chars, size, IR)), Result<void, FormatError>>);
     requires (same_type<decltype(buffer.write(arr, IR)), Result<void, FormatError>>);
     requires (same_type<decltype(buffer.write(ch, size, IR)), Result<void, FormatError>>);
@@ -558,7 +558,7 @@ public:
         return { True{} };
     }
 
-    Result<void, FormatError> write(CharArr chars)
+    Result<void, FormatError> write(CharArray chars)
     {
         return write(chars, chars.size());
     }
@@ -745,7 +745,7 @@ public:
         #undef GUARD
     }
 
-    Result<void, FormatError> write(CharArr chars, FormatIR IR)
+    Result<void, FormatError> write(CharArray chars, FormatIR IR)
     {
         return write(chars, chars.size(), IR);
     }
@@ -810,7 +810,8 @@ template <typename T>
 requires (
     (!is_const<T> && !is_volatile<T> && 
     is_pointer<T> && same_type<remove_const<remove_pointer<T>>, char>) ||
-    (is_array<T> && same_type<remove_const<remove_array<T>>, char>)              
+    (is_array<T> && same_type<remove_const<remove_array<T>>, char>) ||
+    same_type<T, CharArray>
 )
 class Formatter<T> {
 private:
@@ -1023,11 +1024,11 @@ public:
     }
 
     // debug ignores IR
-    template <typename Buffer, ulong N>
+    template <typename Buffer>
     requires (has_buffer_trait<Buffer>)
-    constexpr Result<void, FormatError> format(Buffer& buffer, char const (&value)[N], FormatIR IR = FormatIR {}) const
+    constexpr Result<void, FormatError> format(Buffer& buffer, CharArray value, FormatIR IR = FormatIR {}) const
     {
-        return format(buffer, value, N - 1, IR);
+        return format(buffer, value, value.size(), IR);
     }
 };
 

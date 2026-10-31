@@ -8,19 +8,34 @@
 
 #define _MNC_BEGIN namespace mnc {
 #define _MNC_END }
-#define _GLOBAL _MNC_END
+#define _GLOBAL_EXPORT(Item) _MNC_END using Item; _MNC_BEGIN
 
 _MNC_BEGIN
+
+//////////////////////////////////////////////////////////////////////
+//////////////////////////// FORWARD DECLARE /////////////////////////
+//////////////////////////////////////////////////////////////////////
+#pragma region declare
+
+class String;
+class Slice;
+constexpr Slice operator""_slice(char const*, ulong);
+constexpr String operator""_str(char const*, ulong);
+
+_GLOBAL_EXPORT(mnc::operator""_str)
+_GLOBAL_EXPORT(mnc::operator""_slice)
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////////// class: Slice ////////////////////////////
 //////////////////////////////////////////////////////////////////////
 #pragma region class: Slice
 
-class String;
-
 class Slice {
 private:
+
+    friend class String;
+    friend class Comparator<Slice, Ordering::Order>;
+    friend class Comparator<String, Ordering::Order>;
 
     struct __throw 
     {
@@ -31,9 +46,6 @@ private:
             std::abort();
         }
     };
-
-    friend class Comparator<Slice, Ordering::Order>;
-    friend class Comparator<String, Ordering::Order>;
     
 private:
 
@@ -42,8 +54,12 @@ private:
 
 public:
 
+    friend constexpr Slice operator""_slice(char const* _, ulong __) 
+    {
+        return Slice { _, __ };
+    } 
+
     constexpr Slice(): _data(""), len(0) {}
-    constexpr explicit Slice(char const* data, ulong len): _data(data), len(len) {}
     constexpr Slice(Slice const&) = default;
     constexpr Slice(Slice&&) = default;
     constexpr Slice& operator=(Slice const&) = default;
@@ -55,6 +71,12 @@ public:
 
     template <ulong N>
     static constexpr Slice make(char const (&data)[N]) { return Slice(data); }
+
+private:
+
+    constexpr explicit Slice(char const* data, ulong len): _data(data), len(len) {}
+
+public:
 
     //////////////////////////////////////////////////////////////////////
     /////////////////////////////// fn: basic ////////////////////////////
@@ -361,12 +383,6 @@ public:
     }
 };
 
-_GLOBAL constexpr mnc::Slice operator""_slice(char const* _, mnc::ulong __) 
-{
-    return mnc::Slice { _, __ };
-} 
-_MNC_BEGIN
-
 template <>
 class Comparator<Slice, Ordering::Order> {
 public:
@@ -414,21 +430,21 @@ private:
 
     struct __throw
     {
-        static void STRING_Acessing_Outside_String()
+        [[noreturn]] static void STRING_Acessing_Outside_String()
         {
             std::fprintf(stderr, "[mnc::String] ;; ABORT WARNING ;; accessing outside string\n");
             std::fflush(stderr);
             std::abort();
         }
 
-        static void STRING_Writing_From_Null_Character_Stream()
+        [[noreturn]] static void STRING_Writing_From_Null_Character_Stream()
         {
             std::fprintf(stderr, "[mnc::String] ;; ABORT WARNING ;; writing from null character stream\n");
             std::fflush(stderr);
             std::abort();
         }
 
-        static void STRING_Memory_Request_Failed()
+        [[noreturn]] static void STRING_Memory_Request_Failed()
         {
             std::fprintf(stderr, "[mnc::String] ;; ABORT WARNING ;; memory request failed\n");
             std::fflush(stderr);
@@ -451,17 +467,49 @@ private:
             return result;
         }
 
-        static constexpr void memcpy(char* dest, char const* src, ulong cpy_len)
+        static constexpr void memcpy(char* dest, char const* src, ulong src_size)
         {
             if consteval 
             {
-                for (ulong i = 0; i < cpy_len; i++) {
+                if (dest == src)
+                    return;
+
+                for (ulong i = 0; i < src_size; i++) 
+                {
                     dest[i] = src[i];
                 }
             }
             else
             {
-                std::memcpy(dest, src, cpy_len);
+                std::memcpy(dest, src, src_size);
+            }
+        }
+
+        static constexpr void memmove(char* dest, char const* src, ulong src_size)
+        {
+            if consteval
+            {
+                if (dest == src)
+                    return;
+
+                if (dest > src)
+                {
+                    for (ulong i = 0; i < src_size; i++)
+                    {
+                        dest[src_size - 1 - i] = src[src_size - 1 - i];
+                    }
+                }
+                else
+                {
+                    for (ulong i = 0; i < src_size; i++)
+                    {
+                        dest[i] = src[i];
+                    }
+                }
+            }
+            else
+            {
+                std::memmove(dest, src, src_size);
             }
         }
 
@@ -496,31 +544,16 @@ private:
 
 public:
 
+    friend constexpr String operator""_str(char const* _, mnc::ulong __) 
+    {
+        return Slice { _, __ }.into_str();
+    }
+
     constexpr String()
     {
         len = 0;
         stack.buffer[0] = '\0';
     }
-
-    constexpr explicit String(Slice other): stack{}
-    {
-        if (other.size() <= STACK_CAPACITY) // STACK
-        {
-            helper::memcpy(stack.buffer, other.data(), other.size());
-            stack.buffer[other.size()] = '\0';
-            len = (other.size() << 1) | 0;
-        }
-        else // HEAP
-        {
-            heap.cap = helper::goodsize(other.size());
-            heap.buffer = helper::alloc(heap.cap + 1);
-            helper::memcpy(heap.buffer, other.data(), other.size());
-            heap.buffer[other.size()] = '\0';
-            len = (other.size() << 1) | 1;
-        }
-    }
-
-    constexpr explicit String(String const& other): String(other.as_slice()) {}
 
     constexpr String(String&& other): stack{}
     {
@@ -555,11 +588,11 @@ public:
 
     constexpr String& operator=(Slice other)
     {
-        String dummy;
+        String storage;
         if consteval
         {
-            dummy = other.into_str();
-            other = dummy.as_slice();
+            storage = other.into_str();
+            other = storage.as_slice();
         }
         else
         {
@@ -684,10 +717,32 @@ public:
         }
     }
 
+private:
+
+    constexpr explicit String(Slice other): stack{}
+    {
+        if (other.size() <= STACK_CAPACITY) // STACK
+        {
+            helper::memcpy(stack.buffer, other.data(), other.size());
+            stack.buffer[other.size()] = '\0';
+            len = (other.size() << 1) | 0;
+        }
+        else // HEAP
+        {
+            heap.cap = helper::goodsize(other.size());
+            heap.buffer = helper::alloc(heap.cap + 1);
+            helper::memcpy(heap.buffer, other.data(), other.size());
+            heap.buffer[other.size()] = '\0';
+            len = (other.size() << 1) | 1;
+        }
+    }
+
+public:
+
     //////////////////////////////////////////////////////////////////////
     ///////////////////////////////// BASIC //////////////////////////////
     //////////////////////////////////////////////////////////////////////
-    #pragma region
+    #pragma region basic funcs
 
     constexpr ulong size() const
     {
@@ -714,7 +769,7 @@ public:
 
     constexpr String clone() const
     {
-        return String(*this);
+        return as_slice().into_str();
     }
 
     constexpr char* begin()
@@ -767,10 +822,15 @@ public:
         return as_slice().slice(start, max_len);
     }
 
+    constexpr operator Slice() const
+    {
+        return as_slice();
+    }
+
     //////////////////////////////////////////////////////////////////////
-    ///////////////////////////// ACCESS ELEMENTS ////////////////////////
+    ///////////////////////////// fn: operator[] /////////////////////////
     //////////////////////////////////////////////////////////////////////
-    #pragma region
+    #pragma region operator[]
 
     constexpr char& operator[](ulong index) &
     {
@@ -816,274 +876,365 @@ public:
             return static_cast<char const&&>(stack.buffer[index]);
     }
 
+    //////////////////////////////////////////////////////////////////////
+    ///////////////////////////// fn: back ///////////////////////////////
+    //////////////////////////////////////////////////////////////////////
+    #pragma region back
+
+    constexpr Option<char&> back()
+    {
+        if (size() == 0)
+            return { False{} };
+
+        return { True{}, *(begin() + size() - 1) };
+    }
+
+    constexpr Option<char const&> back() const
+    {
+        if (size() == 0)
+            return { False{} };
+
+        return { True{}, *(begin() + size() - 1) };
+    }
+
+    constexpr String& push_back(char ch) &
+    {
+        char arr[] = { ch, '\0' };
+        return append(Slice(arr));
+    }
+
+    constexpr String&& push_back(char ch) &&
+    {
+        char arr[] = { ch, '\0'  };
+        return static_cast<String&&>(append(Slice(arr)));
+    }
+
+    constexpr Option<char> pop_back()
+    {
+        if (size() == 0)
+            return { False{} };
+
+        char result = *(data() + size() - 1);
+        erase(size() - 1, 1);
+        return { True{}, result };
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    ///////////////////////////// fn: front //////////////////////////////
+    //////////////////////////////////////////////////////////////////////
+    #pragma region front
+
     constexpr Option<char&> front()
+    {
+        if (size() == 0)
+            return { False{} };
+
+        return { True{}, *begin() };
+    }
+
+    constexpr Option<char const&> front() const
     {
         if (size() == 0)
             return { False{} };
         return { True{}, *begin() };
     }
 
-    constexpr Option<char&> back()
+    constexpr String& push_front(char ch) &
+    {
+        char arr[] = { ch, '\0'  };
+        return insert(0, Slice(arr));
+    }
+
+    constexpr String&& push_front(char ch) &&
+    {
+        char arr[] = { ch, '\0'  };
+        return static_cast<String&&>(insert(0, Slice(arr)));
+    }
+
+    constexpr Option<char> pop_front()
     {
         if (size() == 0)
             return { False{} };
-        return { True{}, *(begin() + size() - 1) };
+
+        char result = *data();
+        erase(0, 1);
+        return { True{}, result };
     }
 
     //////////////////////////////////////////////////////////////////////
-    ///////////////////////////// fn: compare ////////////////////////////
+    ///////////////////////////// fn: append /////////////////////////////
     //////////////////////////////////////////////////////////////////////
-    #pragma region
+    #pragma region append
 
-    constexpr bool operator==(String const& other) const
+    constexpr String& append(Slice other) &
     {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) == Order::Equal;
+        write(
+            other.data(), 
+            other.size()
+        )
+        .map_err(
+            [](FormatError) {
+                __throw::STRING_Memory_Request_Failed();
+            }
+        )
+        .unwrap();
+
+        return *this;
     }
 
-    constexpr bool operator!=(String const& other) const
+    constexpr String&& append(Slice other) &&
     {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) != Order::Equal;
+        return static_cast<String&&>(append(other));
     }
-
-    constexpr bool operator<(String const& other) const
-    {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) == Order::Less;
-    }
-
-    constexpr bool operator>(String const& other) const
-    {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) == Order::Greater;
-    }
-
-    constexpr bool operator<=(String const& other) const
-    {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) != Order::Greater;
-    }
-
-    constexpr bool operator>=(String const& other) const
-    {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) != Order::Less;
-    }
-
-    //////////////////////////////////////////////////////////////////////
-    ///////////////////////////// fn: operator+= /////////////////////////
-    //////////////////////////////////////////////////////////////////////
-    #pragma region
 
     constexpr String& operator+=(Slice other) &
     {
-        write(other.data(), other.size()).map_err(
-            [](FormatError) {
-                __throw::STRING_Memory_Request_Failed();
-            }
-        ).unwrap();
-        return *this;
-    }
-
-    constexpr String& operator+=(String const& other) &
-    {
-        write(other.data(), other.size()).map_err(
-            [](FormatError) {
-                __throw::STRING_Memory_Request_Failed();
-            }
-        ).unwrap();
-        return *this;
+        return append(other);
     }
 
     constexpr String&& operator+=(Slice other) &&
     {
-        return static_cast<String&&>(operator+=(other));
+        return static_cast<String&&>(append(other));
     }
-
-    constexpr String&& operator+=(String const& other) &&
-    {
-        return static_cast<String&&>(operator+=(other));
-    }
-
-    //////////////////////////////////////////////////////////////////////
-    ///////////////////////////// fn: operator+ //////////////////////////
-    //////////////////////////////////////////////////////////////////////
-    #pragma region
 
     constexpr String operator+(Slice other) &&
     {
-        return (static_cast<String&&>(*this).operator+=(other));
+        return String(static_cast<String&&>(*this).append(other));
     }
 
-    constexpr String operator+(String const& other) &&
+    //////////////////////////////////////////////////////////////////////
+    ///////////////////////////// fn: insert /////////////////////////////
+    //////////////////////////////////////////////////////////////////////
+    #pragma region insert
+
+    constexpr String& insert(ulong at, Slice other) &
     {
-        return (static_cast<String&&>(*this).operator+=(other));
+        if (other.size() == 0)
+            return *this;
+
+        if (at >= size())
+            return append(other);
+
+        String storage;
+        if consteval
+        {
+            storage = other.into_str();
+            other = storage.as_slice();
+        }
+        else
+        {
+            bool cond1 = slice(0, at).overlaps(other);
+            bool cond2 = !slice(0, at).has_subslice(other);
+            if (cond1 && cond2)
+            {
+                storage = other.into_str();
+                other = storage.as_slice();
+            }
+        }
+
+        ulong new_len = size() + other.size();
+
+        if (len & 1)
+        {
+            if (new_len <= heap.cap)
+            {
+                helper::memmove(heap.buffer + at + other.size(), heap.buffer + at, size() - at);
+                helper::memcpy(heap.buffer + at, other.data(), other.size());
+                heap.buffer[new_len] = '\0';
+                len = (new_len << 1) | 1;
+            }
+            else
+            {
+                ulong new_cap = helper::goodsize(new_len);
+                char* new_buffer = helper::alloc(new_cap + 1);
+                helper::memcpy(new_buffer, heap.buffer, at);
+                helper::memcpy(new_buffer + at, other.data(), other.size());
+                helper::memcpy(new_buffer + at + other.size(), heap.buffer + at, size() - at);
+                new_buffer[new_len] = '\0';
+
+                delete[] heap.buffer;
+                heap.buffer = new_buffer;
+                heap.cap = new_cap;
+                len = (new_len << 1) | 1;
+            }
+        }
+        else
+        {
+            if (new_len <= STACK_CAPACITY)
+            {
+                helper::memmove(stack.buffer + at + other.size(), stack.buffer + at, size() - at);
+                helper::memcpy(stack.buffer + at, other.data(), other.size());
+                stack.buffer[new_len] = '\0';
+                len = (new_len << 1) | 0;
+            }
+            else
+            {
+                ulong new_cap = helper::goodsize(new_len);
+                char* new_buffer = helper::alloc(new_cap + 1);
+                helper::memcpy(new_buffer, stack.buffer, at);
+                helper::memcpy(new_buffer + at, other.data(), other.size());
+                helper::memcpy(new_buffer + at + other.size(), stack.buffer + at, size() - at);
+                new_buffer[new_len] = '\0';
+
+                delete[] heap.buffer;
+                heap.buffer = new_buffer;
+                heap.cap = new_cap;
+                len = (new_len << 1) | 1;
+            }
+        }
+
+        return *this;
+    }
+
+    constexpr String&& insert(ulong at, Slice other) &&
+    {
+        return static_cast<String&&>(insert(at, other));
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    ///////////////////////////// fn: erase //////////////////////////////
+    //////////////////////////////////////////////////////////////////////
+    #pragma region erase
+
+    constexpr String& erase(ulong at, ulong max_range) &
+    {
+        if (at >= size() || max_range == 0)
+            return *this;
+        
+        if (at + max_range >= size())
+        {
+            if (len & 1)
+            {
+                heap.buffer[at] = '\0';
+                len = (at << 1) | 1;
+            }
+            else
+            {
+                stack.buffer[at] = '\0';
+                len = (at << 1) | 0;
+            }
+        }
+        else
+        {
+            ulong end = at + max_range;
+            ulong new_len = size() - max_range;
+
+            if (len & 1)
+            {
+                helper::memmove(heap.buffer + at, heap.buffer + end, size() - end);
+                heap.buffer[new_len] = '\0';
+                len = (new_len << 1) | 1;
+            }
+            else
+            {
+                helper::memmove(stack.buffer + at, stack.buffer + end, size() - end);
+                stack.buffer[new_len] = '\0';
+                len = (new_len << 1) | 0;
+            }
+        }
+
+        return *this;
+    }
+
+    constexpr String&& erase(ulong at, ulong max_range) &&
+    {
+        return static_cast<String&&>(erase(at, max_range));
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    ///////////////////////////// fn: replace /////////////////////////////
+    //////////////////////////////////////////////////////////////////////
+    #pragma region replace
+
+    constexpr String& replace(ulong at, ulong max_range, Slice other) &
+    {
+        if (at >= size())
+            return append(other);
+        
+        if (at + max_range >= size())
+            return erase(at, max_range).append(other);
+
+        String storage;
+        if consteval
+        {
+            storage = other.into_str();
+            other = storage.as_slice();
+        }
+        else
+        {
+            bool cond1 = slice(0, at).overlaps(other);
+            bool cond2 = !slice(0, at).has_subslice(other);
+            if (cond1 && cond2)
+            {
+                storage = other.into_str();
+                other = storage.as_slice();
+            }
+        }
+
+        ulong end = at + max_range;
+        ulong new_len = size() + other.size() - max_range;
+
+        if (len & 1)
+        {
+            if (new_len <= heap.cap)
+            {
+                helper::memmove(heap.buffer + at + other.size(), heap.buffer + end, size() - end);
+                helper::memcpy(heap.buffer + at, other.data(), other.size());
+                heap.buffer[new_len] = '\0';
+                len = (new_len << 1) | 1;
+            }
+            else
+            {
+                ulong new_cap = helper::goodsize(new_len);
+                char* new_buffer = helper::alloc(new_cap + 1);
+                helper::memcpy(new_buffer, heap.buffer, at);
+                helper::memcpy(new_buffer + at, other.data(), other.size());
+                helper::memcpy(new_buffer + at + other.size(), heap.buffer + end, size() - end);
+                new_buffer[new_len] = '\0';
+                
+                delete[] heap.buffer;
+                heap.buffer = new_buffer;
+                heap.cap = new_cap;
+                len = (new_len << 1) | 1;
+            }
+        }
+        else
+        {
+            if (new_len <= STACK_CAPACITY)
+            {
+                helper::memmove(stack.buffer + at + other.size(), stack.buffer + end, size() - end);
+                helper::memcpy(stack.buffer + at, other.data(), other.size());
+                stack.buffer[new_len] = '\0';
+                len = (new_len << 1) | 0;
+            }
+            else
+            {
+                ulong new_cap = helper::goodsize(new_len);
+                char* new_buffer = helper::alloc(new_cap + 1);
+                helper::memcpy(new_buffer, stack.buffer, at);
+                helper::memcpy(new_buffer + at, other.data(), other.size());
+                helper::memcpy(new_buffer + at + other.size(), stack.buffer + end, size() - end);
+                new_buffer[new_len] = '\0';
+                
+                delete[] heap.buffer;
+                heap.buffer = new_buffer;
+                heap.cap = new_cap;
+                len = (new_len << 1) | 1;
+            }
+        }
+        
+        return *this;
+    }
+
+    constexpr String&& replace(ulong at, ulong max_range, Slice other) &&
+    {
+        return static_cast<String&&>(replace(at, max_range, other));
     }
 
     //////////////////////////////////////////////////////////////////////
     ///////////////////////////// fn: write //////////////////////////////
     //////////////////////////////////////////////////////////////////////
-    #pragma region
-
-    constexpr Result<void, FormatError> write(char const* chars, ulong write_len)
-    {
-        if (write_len == 0)
-            return { True{} };
-        
-        if (chars == nullptr && write_len != 0)
-            __throw::STRING_Writing_From_Null_Character_Stream();
-
-        String dummy;
-        if consteval 
-        {
-            dummy = Slice { chars, write_len }.into_str();
-            chars = dummy.data();
-            write_len = dummy.size();
-        }
-        else
-        {
-            if (
-                as_slice().overlaps(Slice { chars, write_len }) &&
-                !as_slice().has_subslice(Slice { chars, write_len })
-            )
-            {
-                String temp = Slice { chars, write_len }.into_str();
-                return write(temp.data(), temp.size());
-            }
-        }
-    
-        ulong new_len = size() + write_len;
-        
-        if (len & 1)
-        {
-            if (new_len <= heap.cap)
-            {
-                helper::memcpy(heap.buffer + size(), chars, write_len);
-                heap.buffer[new_len] = '\0';
-                len = (new_len << 1) | 1;
-            }
-            else
-            {
-                ulong new_cap = helper::goodsize(new_len);
-                char* new_buffer = new(std::nothrow) char[new_cap + 1];
-
-                if (new_buffer == nullptr)
-                    return { False{}, FormatError::MemoryRequestFailed };
-
-                helper::memcpy(new_buffer, heap.buffer, size());
-                helper::memcpy(new_buffer + size(), chars, write_len);
-                new_buffer[new_len] = '\0';
-                delete[] heap.buffer;
-                heap.buffer = new_buffer;
-                heap.cap = new_cap;
-                len = (new_len << 1) | 1;  
-            }
-        }
-        else
-        {
-            if (new_len <= STACK_CAPACITY)
-            {
-                helper::memcpy(stack.buffer + size(), chars, write_len);
-                stack.buffer[new_len] = '\0';
-                len = new_len << 1;
-            }
-            else
-            {
-                ulong new_cap = helper::goodsize(new_len);
-                char* new_buffer = new(std::nothrow) char[new_cap + 1];
-
-                if (new_buffer == nullptr)
-                    return { False{}, FormatError::MemoryRequestFailed };
-                
-                helper::memcpy(new_buffer, stack.buffer, size());
-                helper::memcpy(new_buffer + size(), chars, write_len);
-                new_buffer[new_len] = '\0';
-                heap.buffer = new_buffer;
-                heap.cap = new_cap;
-                len = (new_len << 1) | 1;
-            }
-        }
-
-        return { True{} };
-    }
-
-    constexpr Result<void, FormatError> write(CharArr chars)
-    {
-        return write(chars, chars.size());
-    }
-
-    constexpr Result<void, FormatError> write(char ch, ulong count)
-    {
-        if (count == 0)
-            return { True{} };
-
-        ulong new_len = size() + count;
-
-        if (len & 1)
-        {
-            if (new_len <= heap.cap)
-            {
-                helper::memset(heap.buffer + size(), ch, count);
-                heap.buffer[new_len] = '\0';
-                len = (new_len << 1) | 1;
-            }
-            else
-            {
-                ulong new_cap = helper::goodsize(new_len);
-                char* new_buffer = new(std::nothrow) char[new_cap + 1];
-
-                if (new_buffer == nullptr)
-                    return { False{}, FormatError::MemoryRequestFailed };
-
-                helper::memcpy(new_buffer, heap.buffer, size());
-                helper::memset(new_buffer + size(), ch, count);
-                new_buffer[new_len] = '\0';
-                delete[] heap.buffer;
-                heap.buffer = new_buffer;
-                heap.cap = new_cap;
-                len = (new_len << 1) | 1;  
-            }
-        }
-        else
-        {
-            if (new_len <= STACK_CAPACITY)
-            {
-                helper::memset(stack.buffer + size(), ch, count);
-                stack.buffer[new_len] = '\0';
-                len = new_len << 1;
-            }
-            else
-            {
-                ulong new_cap = helper::goodsize(new_len);
-                char* new_buffer = new(std::nothrow) char[new_cap + 1];
-
-                if (new_buffer == nullptr)
-                    return { False{}, FormatError::MemoryRequestFailed };
-                
-                helper::memcpy(new_buffer, stack.buffer, size());
-                helper::memset(new_buffer + size(), ch, count);
-                new_buffer[new_len] = '\0';
-                heap.buffer = new_buffer;
-                heap.cap = new_cap;
-                len = (new_len << 1) | 1;
-            }
-        }
-
-        return { True{} };
-    }
+    #pragma region write
 
 private:
 
@@ -1181,6 +1332,155 @@ private:
 
 public:
 
+    constexpr Result<void, FormatError> write(char const* chars, ulong write_len)
+    {
+        if (write_len == 0)
+            return { True{} };
+        
+        if (chars == nullptr && write_len != 0)
+            __throw::STRING_Writing_From_Null_Character_Stream();
+
+        String storage;
+        if consteval
+        {
+            storage = Slice { chars, write_len }.into_str();
+            chars = storage.data();
+            write_len = storage.size();
+        }
+        else
+        {
+            bool cond1 = as_slice().overlaps(Slice { chars, write_len });
+            bool cond2 = !as_slice().has_subslice(Slice { chars, write_len });
+            if (cond1 && cond2)
+            {
+                storage = Slice { chars, write_len }.into_str();
+                chars = storage.data();
+                write_len = storage.size();
+            }
+        }
+    
+        ulong new_len = size() + write_len;
+        
+        if (len & 1)
+        {
+            if (new_len <= heap.cap)
+            {
+                helper::memcpy(heap.buffer + size(), chars, write_len);
+                heap.buffer[new_len] = '\0';
+                len = (new_len << 1) | 1;
+            }
+            else
+            {
+                ulong new_cap = helper::goodsize(new_len);
+                char* new_buffer = new(std::nothrow) char[new_cap + 1];
+
+                if (new_buffer == nullptr)
+                    return { False{}, FormatError::MemoryRequestFailed };
+
+                helper::memcpy(new_buffer, heap.buffer, size());
+                helper::memcpy(new_buffer + size(), chars, write_len);
+                new_buffer[new_len] = '\0';
+                delete[] heap.buffer;
+                heap.buffer = new_buffer;
+                heap.cap = new_cap;
+                len = (new_len << 1) | 1;  
+            }
+        }
+        else
+        {
+            if (new_len <= STACK_CAPACITY)
+            {
+                helper::memcpy(stack.buffer + size(), chars, write_len);
+                stack.buffer[new_len] = '\0';
+                len = new_len << 1;
+            }
+            else
+            {
+                ulong new_cap = helper::goodsize(new_len);
+                char* new_buffer = new(std::nothrow) char[new_cap + 1];
+
+                if (new_buffer == nullptr)
+                    return { False{}, FormatError::MemoryRequestFailed };
+                
+                helper::memcpy(new_buffer, stack.buffer, size());
+                helper::memcpy(new_buffer + size(), chars, write_len);
+                new_buffer[new_len] = '\0';
+                heap.buffer = new_buffer;
+                heap.cap = new_cap;
+                len = (new_len << 1) | 1;
+            }
+        }
+
+        return { True{} };
+    }
+
+    constexpr Result<void, FormatError> write(CharArray chars)
+    {
+        return write(chars, chars.size());
+    }
+
+    constexpr Result<void, FormatError> write(char ch, ulong count)
+    {
+        if (count == 0)
+            return { True{} };
+
+        ulong new_len = size() + count;
+
+        if (len & 1)
+        {
+            if (new_len <= heap.cap)
+            {
+                helper::memset(heap.buffer + size(), ch, count);
+                heap.buffer[new_len] = '\0';
+                len = (new_len << 1) | 1;
+            }
+            else
+            {
+                ulong new_cap = helper::goodsize(new_len);
+                char* new_buffer = new(std::nothrow) char[new_cap + 1];
+
+                if (new_buffer == nullptr)
+                    return { False{}, FormatError::MemoryRequestFailed };
+
+                helper::memcpy(new_buffer, heap.buffer, size());
+                helper::memset(new_buffer + size(), ch, count);
+                new_buffer[new_len] = '\0';
+
+                delete[] heap.buffer;
+                heap.buffer = new_buffer;
+                heap.cap = new_cap;
+                len = (new_len << 1) | 1;  
+            }
+        }
+        else
+        {
+            if (new_len <= STACK_CAPACITY)
+            {
+                helper::memset(stack.buffer + size(), ch, count);
+                stack.buffer[new_len] = '\0';
+                len = new_len << 1;
+            }
+            else
+            {
+                ulong new_cap = helper::goodsize(new_len);
+                char* new_buffer = new(std::nothrow) char[new_cap + 1];
+
+                if (new_buffer == nullptr)
+                    return { False{}, FormatError::MemoryRequestFailed };
+                
+                helper::memcpy(new_buffer, stack.buffer, size());
+                helper::memset(new_buffer + size(), ch, count);
+                new_buffer[new_len] = '\0';
+
+                heap.buffer = new_buffer;
+                heap.cap = new_cap;
+                len = (new_len << 1) | 1;
+            }
+        }
+
+        return { True{} };
+    }
+
     constexpr Result<void, FormatError> write(char const* chars, ulong write_len, FormatIR IR)
     {
         return write_helper
@@ -1190,7 +1490,7 @@ public:
         );
     }
 
-    constexpr Result<void, FormatError> write(CharArr chars, FormatIR IR)
+    constexpr Result<void, FormatError> write(CharArray chars, FormatIR IR)
     {
         return write_helper
         (
@@ -1208,13 +1508,59 @@ public:
         );
     }
 
-};
+    //////////////////////////////////////////////////////////////////////
+    ///////////////////////////// fn: compare ////////////////////////////
+    //////////////////////////////////////////////////////////////////////
+    #pragma region compare
 
-_GLOBAL constexpr mnc::String operator""_str(char const* _, mnc::ulong __) 
-{
-    return mnc::Slice { _, __ }.into_str();
-} 
-_MNC_BEGIN
+    constexpr bool operator==(String const& other) const
+    {
+        return Comparator<Slice, Ordering::Order>::compare(
+            as_slice(), 
+            other.as_slice()
+        ) == Order::Equal;
+    }
+
+    constexpr bool operator!=(String const& other) const
+    {
+        return Comparator<Slice, Ordering::Order>::compare(
+            as_slice(), 
+            other.as_slice()
+        ) != Order::Equal;
+    }
+
+    constexpr bool operator<(String const& other) const
+    {
+        return Comparator<Slice, Ordering::Order>::compare(
+            as_slice(), 
+            other.as_slice()
+        ) == Order::Less;
+    }
+
+    constexpr bool operator>(String const& other) const
+    {
+        return Comparator<Slice, Ordering::Order>::compare(
+            as_slice(), 
+            other.as_slice()
+        ) == Order::Greater;
+    }
+
+    constexpr bool operator<=(String const& other) const
+    {
+        return Comparator<Slice, Ordering::Order>::compare(
+            as_slice(), 
+            other.as_slice()
+        ) != Order::Greater;
+    }
+
+    constexpr bool operator>=(String const& other) const
+    {
+        return Comparator<Slice, Ordering::Order>::compare(
+            as_slice(), 
+            other.as_slice()
+        ) != Order::Less;
+    }
+};
 
 template <>
 class Comparator<String, Ordering::Order> {
@@ -1276,4 +1622,4 @@ _MNC_END
 
 #undef _MNC_BEGIN
 #undef _MNC_END
-#undef _GLOBAL
+#undef _GLOBAL_EXPORT

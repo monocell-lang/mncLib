@@ -212,7 +212,7 @@ public:
 
     template <typename... Tys>
     constexpr Tuple(Tys&&... elem)
-    requires (sizeof...(Tys) == sizeof...(Ts))
+    requires (sizeof...(Tys) == sizeof...(Ts) && (is_constructible_from<Ts, Tys&&> && ...))
     : data { static_cast<Tys&&>(elem)... } {}
 
     constexpr Tuple(Tuple const& other)
@@ -326,7 +326,9 @@ private:
     template <typename Self, typename Other, int... _Index>
     static constexpr Self& assign(Self& self, Other&& other, index_sequence<_Index...>)
     {
-        if ((void*)&self == (void*)&other) return self;
+        if ((void*)&self == (void*)&other) 
+            return self;
+
         ((self.template get<_Index>() = static_cast<Other&&>(other).template get<_Index>()), ...);
         return self;
     }
@@ -336,7 +338,7 @@ public:
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) &&
-        (!same_type<Ts, Tys> || ...) &&    // disabiguation
+        (!same_type<Ts, Tys> || ...) &&
         (is_assignable_from<Ts, Tys const&> && ...)
     )
     constexpr Tuple& operator=(Tuple<Tys...> const& other)
@@ -347,18 +349,7 @@ public:
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) &&
-        (!same_type<Ts const, Tys> || ...) &&   // disabiguation
-        (is_assignable_from<Ts const, Tys const&> && ...)
-    )
-    constexpr Tuple& operator=(Tuple<Tys...> const& other) const
-    {
-        return assign(*this, other, this_sequence);
-    }
-
-    template <typename... Tys>
-    requires (
-        (sizeof...(Ts) == sizeof...(Tys)) &&
-        (!same_type<Ts, Tys> || ...) &&   // disabiguation
+        (!same_type<Ts, Tys> || ...) &&
         (is_assignable_from<Ts, Tys&&> && ...)
     )
     constexpr Tuple& operator=(Tuple<Tys...>&& other)
@@ -369,10 +360,21 @@ public:
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) &&
-        (!same_type<Ts const, Tys> || ...) &&   // disabiguation
+        (!same_type<Ts const, Tys> || ...) &&
+        (is_assignable_from<Ts const, Tys const&> && ...)
+    )
+    constexpr Tuple const& operator=(Tuple<Tys...> const& other) const
+    {
+        return assign(*this, other, this_sequence);
+    }
+
+    template <typename... Tys>
+    requires (
+        (sizeof...(Ts) == sizeof...(Tys)) &&
+        (!same_type<Ts const, Tys> || ...) &&
         (is_assignable_from<Ts const, Tys&&> && ...)
     )
-    constexpr Tuple& operator=(Tuple<Tys...>&& other) const
+    constexpr Tuple const& operator=(Tuple<Tys...>&& other) const
     {
         return assign(*this, static_cast<Tuple<Tys...>&&>(other), this_sequence);
     }
@@ -383,160 +385,212 @@ public:
 
 private:
 
+    /*
+    *   left:   Tuple<T0 any&&, T1 any&&, ..., Tuple<S0 any&&, S1 any&&, ...> any&&
+    *   right:  Tuple<U0 any&&, U1 any&&, ..., Tuple<W0 any&&, W1 any&&, ...> any&&
+    */
+
     static constexpr Ordering this_ordering = (orderingof<remove_const_reference<Ts>> + ... + Ordering::Order);
     using This_Order = OrderType<this_ordering>;
 
-    template <typename Other, int... _Index>
-    static constexpr This_Order compare(Tuple const& left, Other const& right, index_sequence<_Index...>)
-    {
-        /*
-        *   Equal, Equal, Less, ...    = Less
-        *   Equal, Equal, Greater, ... = Greater
-        *   Equal, Equal, UnEqual, ... = UnEqual
-        *   Equal, Equal,  ..., Equal  = Equal
-        *   Equal, Less, UnEqual, ...  = UnEqual
-        */
+    template <typename T>
+    class tuple_compare {
+    public:
 
-        This_Order result = This_Order::Equal;
+        static constexpr This_Order compare(T const& left, T const& right)
+        {
+            return Comparator<T, this_ordering>::compare(left, right);
+        }
+    };
 
-        // unroll
-        (
-            (result = [](This_Order result, Tuple const& left, Other const& right) 
+    template <typename... Ts1>
+    class tuple_compare<Tuple<Ts1...>> {
+    public:
+
+        template <typename Other, int... _Index>
+        static constexpr This_Order compare(Tuple<Ts1...> const& left, Other const& right, index_sequence<_Index...>)
+        {
+            /*
+            *   Equal, Equal, Less, ...    = Less
+            *   Equal, Equal, Greater, ... = Greater
+            *   Equal, Equal, UnEqual, ... = UnEqual
+            *   Equal, Equal,  ..., Equal  = Equal
+            *   Equal, Less, UnEqual, ...  = UnEqual
+            */
+
+            if constexpr (this_ordering != Ordering::ParOrder)
             {
-                if constexpr (this_ordering != Ordering::ParOrder)
-                {
-                    if (result != This_Order::Equal)
-                        return result;
+                This_Order result = This_Order::Equal;
 
-                    return Comparator<remove_const_reference<Ts>, this_ordering>::compare(
-                        left.template get<_Index>(),
-                        right.template get<_Index>()
-                    );
-                }
-                else
-                {
-                    switch (result)
+                // unroll
+                (
+                    (result = [&result, &left, &right]()
                     {
-                        case ParOrder::Equal:
-                        {
-                            return Comparator<remove_const_reference<Ts>, this_ordering>::compare(
-                                left.template get<_Index>(),
-                                right.template get<_Index>()
-                            );
-                        }
-
-                        case ParOrder::Greater: 
-                        [[fallthrough]];
-                        
-                        case ParOrder::Less:
-                        {
-                            ParOrder cmp = Comparator<remove_const_reference<Ts>, this_ordering>::compare(
-                                left.template get<_Index>(),
-                                right.template get<_Index>()
-                            );
-
-                            if (cmp == ParOrder::UnEqual)
-                                return cmp;
-                            else
-                                return result;
-                        }
-
-                        default:
-                        [[fallthrough]];
-                        
-                        case ParOrder::UnEqual: 
-                        {
+                        if (result != This_Order::Equal)
                             return result;
+
+                        return tuple_compare<remove_const_reference<Ts1>>::compare(
+                            left.template get<_Index>(), 
+                            right.template get<_Index>()
+                        );
+                    }
+                    ()), ...
+                );
+
+                return result;
+            }
+            else  // Ordering::ParOrder
+            {
+                ParOrder result = ParOrder::Equal;
+
+                // unroll
+                (
+                    (result = [&result, &left, &right]()
+                    {
+                        switch (result)
+                        {
+                            case ParOrder::Equal:
+                            {
+                                return tuple_compare<remove_const_reference<Ts1>>::compare(
+                                    left.template get<_Index>(), 
+                                    right.template get<_Index>()
+                                );
+                            }
+
+                            case ParOrder::Greater:
+                            [[fallthrough]];
+
+                            case ParOrder::Less:
+                            {
+                                ParOrder cmp = tuple_compare<remove_const_reference<Ts1>>::compare(
+                                    left.template get<_Index>(), 
+                                    right.template get<_Index>()
+                                );
+
+                                if (cmp == ParOrder::UnEqual)
+                                    return cmp;
+                                else
+                                    return result;
+                            }
+
+                            default:
+                            [[fallthrough]];
+
+                            case ParOrder::UnEqual:
+                            {
+                                return result;
+                            }
                         }
                     }
-                }
-            }
-            (result, left, right)), ...
-        );
+                    ()), ...
+                );
 
-        return result;
+                return result;
+            }
+        }
+
+        template <typename Other>
+        static constexpr This_Order compare(Tuple<Ts1...> const& left, Other const& right)
+        {
+            return compare(left, right, index_sequence_init<sizeof...(Ts1)>{});
+        }
+    };
+
+    template <typename... Tys>
+    static constexpr This_Order compare(Tuple const& left, Tuple<Tys...> const& right)
+    {
+        return tuple_compare<Tuple>::compare(left, right);
     }
 
     template <typename T1, typename T2>
-    struct struct_equivalent_type {
-        static constexpr bool value = same_type<remove_const_reference<T1>, remove_const_reference<T2>>;
+    struct struct_equivalent_tuple {
+        static constexpr bool value = same_type<T1, T2>;
     };
 
     template <typename... Ts1, typename... Ts2>
-    struct struct_equivalent_type<Tuple<Ts1...>, Tuple<Ts2...>> {
-        static constexpr bool value = (struct_equivalent_type<Ts1, Ts2>::value && ...);
+    requires (sizeof...(Ts1) == sizeof...(Ts2))
+    struct struct_equivalent_tuple<Tuple<Ts1...>, Tuple<Ts2...>> {
+        static constexpr bool value = (
+            struct_equivalent_tuple<
+                remove_const_reference<Ts1>, 
+                remove_const_reference<Ts2>
+            >::value && ...
+        );
     };
 
-    template <typename T1, typename T2>
-    static constexpr bool equivalent_type = struct_equivalent_type<T1, T2>::value;
+    template <typename Tuple1, typename Tuple2>
+    static constexpr bool equivalent_tuple = struct_equivalent_tuple<
+        remove_const_reference<Tuple1>, 
+        remove_const_reference<Tuple2>
+    >::value;
 
 public:
 
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) &&
-        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
         (has_ParEqual<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator==(Tuple<Tys...> const& other) const
     {
-        return compare(*this, other, this_sequence) == This_Order::Equal;
+        return compare(*this, other) == This_Order::Equal;
     }
 
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) &&
-        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
         (has_ParEqual<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator!=(Tuple<Tys...> const& other) const
     {
-        return compare(*this, other, this_sequence) != This_Order::Equal;
+        return compare(*this, other) != This_Order::Equal;
     }
 
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
-        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
         (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator<(Tuple<Tys...> const& other) const
     {
-        return compare(*this, other, this_sequence) == This_Order::Less;
+        return compare(*this, other) == This_Order::Less;
     }
 
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
-        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
         (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator>(Tuple<Tys...> const& other) const
     {
-        return compare(*this, other, this_sequence) == This_Order::Greater;
+        return compare(*this, other) == This_Order::Greater;
     }
 
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
-        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
         (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator<=(Tuple<Tys...> const& other) const
     {
-        auto value = compare(*this, other, this_sequence);
+        auto value = compare(*this, other);
         return (value == This_Order::Less) || (value == This_Order::Equal);
     }
 
     template <typename... Tys>
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
-        (equivalent_type<remove_const_reference<Ts>, remove_const_reference<Tys>> && ...) &&
+        (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
         (has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator>=(Tuple<Tys...> const& other) const
     {
-        auto value = compare(*this, other, this_sequence);
+        auto value = compare(*this, other);
         return (value == This_Order::Greater) || (value == This_Order::Equal);
     }
 };
@@ -545,8 +599,12 @@ public:
 struct tuple
 {
     template <typename... Ts>
+    requires (
+        (is_constructible_from<Ts, Ts&&> && ...) &&
+        (!is_volatile<Ts> && ...)
+    )
     static constexpr auto make(Ts&&... elems) {
-        using Tuple = Tuple<remove_const_volatile<remove_reference<Ts>>...>;
+        using Tuple = Tuple<remove_const_reference<Ts>...>;
         return Tuple { static_cast<Ts&&>(elems)... };
     }
 
@@ -587,25 +645,25 @@ public:
     template <typename Fn, typename... Ts>
     requires (is_callable<Fn&&, _(Ts&...)>)
     static constexpr decltype(auto) apply(Fn&& fn, Tuple<Ts...>& self) {
-        return apply(fn, self, index_sequence_init<sizeof...(Ts)>{});
+        return apply(static_cast<Fn&&>(fn), self, index_sequence_init<sizeof...(Ts)>{});
     }
 
     template <typename Fn, typename... Ts>
     requires (is_callable<Fn&&, _(Ts const&...)>)
     static constexpr decltype(auto) apply(Fn&& fn, Tuple<Ts...> const& self) {
-        return apply(fn, self, index_sequence_init<sizeof...(Ts)>{});
+        return apply(static_cast<Fn&&>(fn), self, index_sequence_init<sizeof...(Ts)>{});
     }
 
     template <typename Fn, typename... Ts>
     requires (is_callable<Fn&&, _(Ts&&...)>)
     static constexpr decltype(auto) apply(Fn&& fn, Tuple<Ts...>&& self) {
-        return apply(fn, static_cast<Tuple<Ts...>&&>(self), index_sequence_init<sizeof...(Ts)>{});
+        return apply(static_cast<Fn&&>(fn), static_cast<Tuple<Ts...>&&>(self), index_sequence_init<sizeof...(Ts)>{});
     }
 
     template <typename Fn, typename... Ts>
     requires (is_callable<Fn&&, _(Ts const&&...)>)
     static constexpr decltype(auto) apply(Fn&& fn, Tuple<Ts...> const&& self) {
-        return apply(fn, static_cast<Tuple<Ts...> const&&>(self), index_sequence_init<sizeof...(Ts)>{});
+        return apply(static_cast<Fn&&>(fn), static_cast<Tuple<Ts...> const&&>(self), index_sequence_init<sizeof...(Ts)>{});
     }
 
 private:
@@ -624,7 +682,7 @@ public:
 
     static constexpr Order compare(Tuple<Ts...> const& left, Tuple<Ts...> const& right) 
     {
-        return Tuple<Ts...>::compare(left, right, index_sequence_init<sizeof...(Ts)>{});
+        return Tuple<Ts...>::compare(left, right);
     }
 };
 
@@ -635,7 +693,7 @@ public:
 
     static constexpr ParOrder compare(Tuple<Ts...> const& left, Tuple<Ts...> const& right) 
     {
-        return Tuple<Ts...>::compare(left, right, index_sequence_init<sizeof...(Ts)>{});
+        return Tuple<Ts...>::compare(left, right);
     }
 };
 
@@ -646,7 +704,7 @@ public:
 
     static constexpr Equal compare(Tuple<Ts...> const& left, Tuple<Ts...> const& right) 
     {
-        return Tuple<Ts...>::compare(left, right, index_sequence_init<sizeof...(Ts)>{});
+        return Tuple<Ts...>::compare(left, right);
     }
 };
 
@@ -657,7 +715,7 @@ public:
 
     static constexpr ParEqual compare(Tuple<Ts...> const& left, Tuple<Ts...> const& right) 
     {
-        return Tuple<Ts...>::compare(left, right, index_sequence_init<sizeof...(Ts)>{});
+        return Tuple<Ts...>::compare(left, right);
     }
 };
 
@@ -690,7 +748,8 @@ _MNC_END namespace std
     struct tuple_element<_Index, mnc::Tuple<Ts...>> {
         using type = mnc::type_at<_Index, Ts...>;
     };
-} _MNC_BEGIN
+} 
+_MNC_BEGIN
 
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////

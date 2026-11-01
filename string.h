@@ -9,6 +9,9 @@
 #define _MNC_BEGIN namespace mnc {
 #define _MNC_END }
 #define _GLOBAL_EXPORT(Item) _MNC_END using Item; _MNC_BEGIN
+#define _MNC ::mnc::
+#define _LVALUE (*this).
+#define _RVALUE mov(*this).
 
 _MNC_BEGIN
 
@@ -46,6 +49,20 @@ private:
             std::abort();
         }
     };
+
+    struct helper
+    {
+        static constexpr bool is_space(char ch)
+        {
+            return 
+            ch == ' '  || ch == '\t' || ch == '\n' ||
+            ch == '\r' || ch == '\v' || ch == '\f';
+        }
+    };
+
+    //////////////////////////////////////////////////////////////////////
+    //////////////////////////////// MAIN ////////////////////////////////
+    //////////////////////////////////////////////////////////////////////
     
 private:
 
@@ -79,8 +96,9 @@ private:
 public:
 
     //////////////////////////////////////////////////////////////////////
-    /////////////////////////////// fn: basic ////////////////////////////
+    ///////////////////////////////// BASIC //////////////////////////////
     //////////////////////////////////////////////////////////////////////
+    #pragma region basic funcs
 
     constexpr ulong size() const
     {
@@ -150,6 +168,7 @@ public:
     //////////////////////////////////////////////////////////////////////
     //////////////////////////// ACCESS ELEMENTS /////////////////////////
     //////////////////////////////////////////////////////////////////////
+    #pragma region operator[]
 
     constexpr char const& operator[](ulong index) const&
     {
@@ -184,8 +203,33 @@ public:
     }
 
     //////////////////////////////////////////////////////////////////////
+    ///////////////////////////// fn: trim ///////////////////////////////
+    //////////////////////////////////////////////////////////////////////
+    #pragma region trim
+
+    constexpr Slice trim_head() const
+    {
+        ulong i = 0;
+        while (i < len && helper::is_space(_data[i])) { ++i; }
+        return Slice { _data + i, len - i };
+    }
+
+    constexpr Slice trim_tail() const
+    {
+        ulong i = len;
+        while (i > 0 && helper::is_space(_data[i - 1])) { --i; }
+        return Slice { _data, i };
+    }
+
+    constexpr Slice trim() const
+    {
+        return trim_head().trim_tail();
+    }
+
+    //////////////////////////////////////////////////////////////////////
     ///////////////////////////// fn: compare ////////////////////////////
     //////////////////////////////////////////////////////////////////////
+    #pragma region compare
 
 private:
 
@@ -317,6 +361,7 @@ public:
     //////////////////////////////////////////////////////////////////////
     ///////////////////////////// fn: find ///////////////////////////////
     //////////////////////////////////////////////////////////////////////
+    #pragma region find
 
     constexpr Option<ulong> find(char ch, bool find_not, ulong start_index = 0) const 
     {
@@ -422,31 +467,25 @@ public:
 class String {
 private:
 
-    friend class Slice;
-
-    //////////////////////////////////////////////////////////////////////
-    //////////////////////////////// helpers /////////////////////////////
-    //////////////////////////////////////////////////////////////////////
-
     struct __throw
     {
-        [[noreturn]] static void STRING_Acessing_Outside_String()
+        static void STRING_Acessing_Outside_String()
         {
             std::fprintf(stderr, "[mnc::String] ;; ABORT WARNING ;; accessing outside string\n");
             std::fflush(stderr);
             std::abort();
         }
 
-        [[noreturn]] static void STRING_Writing_From_Null_Character_Stream()
+        static void STRING_Memory_Request_Failed()
         {
-            std::fprintf(stderr, "[mnc::String] ;; ABORT WARNING ;; writing from null character stream\n");
+            std::fprintf(stderr, "[mnc::String] ;; ABORT WARNING ;; memory request failed\n");
             std::fflush(stderr);
             std::abort();
         }
 
-        [[noreturn]] static void STRING_Memory_Request_Failed()
+        static void STRING_Writing_From_Null_Character_Stream()
         {
-            std::fprintf(stderr, "[mnc::String] ;; ABORT WARNING ;; memory request failed\n");
+            std::fprintf(stderr, "[mnc::String] ;; ABORT WARNING ;; writing from null character stream\n");
             std::fflush(stderr);
             std::abort();
         }
@@ -544,7 +583,7 @@ private:
 
 public:
 
-    friend constexpr String operator""_str(char const* _, mnc::ulong __) 
+    friend constexpr String operator""_str(char const* _, ulong __) 
     {
         return Slice { _, __ }.into_str();
     }
@@ -554,6 +593,26 @@ public:
         len = 0;
         stack.buffer[0] = '\0';
     }
+
+    constexpr explicit String(Slice other): stack{}
+    {
+        if (other.size() <= STACK_CAPACITY) // STACK
+        {
+            helper::memcpy(stack.buffer, other.data(), other.size());
+            stack.buffer[other.size()] = '\0';
+            len = (other.size() << 1) | 0;
+        }
+        else // HEAP
+        {
+            heap.cap = helper::goodsize(other.size());
+            heap.buffer = helper::alloc(heap.cap + 1);
+            helper::memcpy(heap.buffer, other.data(), other.size());
+            heap.buffer[other.size()] = '\0';
+            len = (other.size() << 1) | 1;
+        }
+    }
+
+    constexpr String(String const& other) = delete;
 
     constexpr String(String&& other): stack{}
     {
@@ -598,7 +657,8 @@ public:
         {
             if (as_slice().overlaps(other))
             {
-                return operator=(other.into_str().as_slice());
+                storage = other.into_str();
+                other = storage.as_slice();
             }
         }
 
@@ -641,13 +701,7 @@ public:
         return *this;
     }
 
-    constexpr String& operator=(String const& other)
-    {
-        if (this == &other)
-            return *this;
-
-        return operator=(other.as_slice());
-    }
+    constexpr String& operator=(String const& other) = delete;
 
     constexpr String& operator=(String&& other)
     {
@@ -716,28 +770,6 @@ public:
             delete[] heap.buffer;
         }
     }
-
-private:
-
-    constexpr explicit String(Slice other): stack{}
-    {
-        if (other.size() <= STACK_CAPACITY) // STACK
-        {
-            helper::memcpy(stack.buffer, other.data(), other.size());
-            stack.buffer[other.size()] = '\0';
-            len = (other.size() << 1) | 0;
-        }
-        else // HEAP
-        {
-            heap.cap = helper::goodsize(other.size());
-            heap.buffer = helper::alloc(heap.cap + 1);
-            helper::memcpy(heap.buffer, other.data(), other.size());
-            heap.buffer[other.size()] = '\0';
-            len = (other.size() << 1) | 1;
-        }
-    }
-
-public:
 
     //////////////////////////////////////////////////////////////////////
     ///////////////////////////////// BASIC //////////////////////////////
@@ -812,15 +844,18 @@ public:
             return stack.buffer;
     }
 
-    constexpr Slice as_slice() const
+    constexpr Slice as_slice() const&
     {
         return Slice { data(), size() };
     }
 
-    constexpr Slice slice(ulong start, ulong max_len) const 
+    constexpr Slice slice(ulong start, ulong max_len) const&
     {
         return as_slice().slice(start, max_len);
     }
+
+    constexpr Slice as_slice() && = delete;
+    constexpr Slice slice(ulong start, ulong max_len) && = delete;
 
     //////////////////////////////////////////////////////////////////////
     ///////////////////////////// fn: operator[] /////////////////////////
@@ -895,13 +930,13 @@ public:
     constexpr String& push_back(char ch) &
     {
         char arr[] = { ch, '\0' };
-        return append(Slice(arr));
+        return _LVALUE append(Slice(arr));
     }
 
     constexpr String&& push_back(char ch) &&
     {
         char arr[] = { ch, '\0'  };
-        return static_cast<String&&>(append(Slice(arr)));
+        return _RVALUE append(Slice(arr));
     }
 
     constexpr Option<char> pop_back()
@@ -937,13 +972,13 @@ public:
     constexpr String& push_front(char ch) &
     {
         char arr[] = { ch, '\0'  };
-        return insert(0, Slice(arr));
+        return _LVALUE insert(0, Slice(arr));
     }
 
     constexpr String&& push_front(char ch) &&
     {
         char arr[] = { ch, '\0'  };
-        return static_cast<String&&>(insert(0, Slice(arr)));
+        return _RVALUE insert(0, Slice(arr));
     }
 
     constexpr Option<char> pop_front()
@@ -977,49 +1012,49 @@ public:
         return *this;
     }
 
-    constexpr String& append(String const& other) &
-    {
-        return append(other.as_slice());
-    }
-
     constexpr String&& append(Slice other) &&
     {
-        return static_cast<String&&>(append(other));
-    }
-
-    constexpr String&& append(String const& other) &&
-    {
-        return static_cast<String&&>(append(other.as_slice()));
+        return static_cast<String&&>(_LVALUE append(other));
     }
 
     constexpr String& operator+=(Slice other) &
     {
-        return append(other);
-    }
-
-    constexpr String& operator+=(String const& other) &
-    {
-        return append(other.as_slice());
+        return _LVALUE append(other);
     }
 
     constexpr String&& operator+=(Slice other) &&
     {
-        return static_cast<String&&>(append(other));
-    }
-
-    constexpr String&& operator+=(String const& other) &&
-    {
-        return static_cast<String&&>(append(other.as_slice()));
+        return _RVALUE append(other);
     }
 
     constexpr String operator+(Slice other) &&
     {
-        return String(static_cast<String&&>(append(other)));
+        return String(_MNC mov(*this)).append(other);
+    }
+
+    constexpr String& append(String const& other) &
+    {
+        return _LVALUE append(other.as_slice());
+    }
+
+    constexpr String&& append(String const& other) &&
+    {
+        return _RVALUE append(other.as_slice());
+    }
+
+    constexpr String& operator+=(String const& other) &
+    {
+        return _LVALUE append(other.as_slice());
+    }
+
+    constexpr String&& operator+=(String const& other) &&
+    {
+        return _RVALUE append(other.as_slice());
     }
 
     constexpr String operator+(String const& other) &&
     {
-        return String(static_cast<String&&>(append(other.as_slice())));
+        return String(_MNC mov(*this)).append(other.as_slice());
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -1106,19 +1141,19 @@ public:
         return *this;
     }
 
-    constexpr String& insert(ulong at, String const& other) &
-    {
-        return insert(at, other.as_slice());
-    }
-
     constexpr String&& insert(ulong at, Slice other) &&
     {
-        return static_cast<String&&>(insert(at, other));
+        return static_cast<String&&>(_LVALUE insert(at, other));
+    }
+
+    constexpr String& insert(ulong at, String const& other) &
+    {
+        return _LVALUE insert(at, other.as_slice());
     }
 
     constexpr String&& insert(ulong at, String const& other) &&
     {
-        return static_cast<String&&>(insert(at, other.as_slice()));
+        return _RVALUE insert(at, other.as_slice());
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -1168,7 +1203,17 @@ public:
 
     constexpr String&& erase(ulong at, ulong max_range) &&
     {
-        return static_cast<String&&>(erase(at, max_range));
+        return static_cast<String&&>(_LVALUE erase(at, max_range));
+    }
+
+    constexpr String& clear() &
+    {
+        return _LVALUE erase(0, size());
+    }
+
+    constexpr String&& clear() &&
+    {
+        return _RVALUE erase(0, size());
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -1180,9 +1225,6 @@ public:
     {
         if (at >= size())
             return append(other);
-        
-        if (at + max_range >= size())
-            return erase(at, max_range).append(other);
 
         String storage;
         if consteval
@@ -1256,19 +1298,62 @@ public:
         return *this;
     }
 
-    constexpr String& replace(ulong at, ulong max_range, String const& other) &
-    {
-        return replace(at, max_range, other.as_slice());
-    }
-
     constexpr String&& replace(ulong at, ulong max_range, Slice other) &&
     {
-        return static_cast<String&&>(replace(at, max_range, other));
+        return static_cast<String&&>(_LVALUE replace(at, max_range, other));
+    }
+
+    constexpr String& replace(ulong at, ulong max_range, String const& other) &
+    {
+        return _LVALUE replace(at, max_range, other.as_slice());
     }
 
     constexpr String&& replace(ulong at, ulong max_range, String const& other) &&
     {
-        return static_cast<String&&>(replace(at, max_range, other.as_slice()));
+        return _RVALUE replace(at, max_range, other.as_slice());
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    ///////////////////////////// fn: trim ///////////////////////////////
+    //////////////////////////////////////////////////////////////////////
+    #pragma region trim
+
+    constexpr String& trim_head() &
+    {
+        ulong i = 0;
+        ulong size = this->size();
+        char const* data = this->data();
+        while (i < size && Slice::helper::is_space(data[i])) { ++i; }
+        return _LVALUE erase(0, i);
+    }
+
+    constexpr String&& trim_head() &&
+    {
+        return static_cast<String&&>(_LVALUE trim_head());
+    }
+
+    constexpr String& trim_tail() &
+    {
+        ulong i = size();
+        ulong size = this->size();
+        char const* data = this->data();
+        while (i > 0 && Slice::helper::is_space(data[i - 1])) { --i; }
+        return _LVALUE erase(i, size - i);
+    }
+
+    constexpr String&& trim_tail() &&
+    {
+        return static_cast<String&&>(_LVALUE trim_tail());
+    }
+
+    constexpr String& trim() &
+    {
+        return _LVALUE trim_head().trim_tail();
+    }
+
+    constexpr String&& trim() &&
+    {
+        return _RVALUE trim_head().trim_tail();
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -1420,6 +1505,7 @@ public:
                 helper::memcpy(new_buffer, heap.buffer, size());
                 helper::memcpy(new_buffer + size(), chars, write_len);
                 new_buffer[new_len] = '\0';
+
                 delete[] heap.buffer;
                 heap.buffer = new_buffer;
                 heap.cap = new_cap;
@@ -1445,6 +1531,7 @@ public:
                 helper::memcpy(new_buffer, stack.buffer, size());
                 helper::memcpy(new_buffer + size(), chars, write_len);
                 new_buffer[new_len] = '\0';
+
                 heap.buffer = new_buffer;
                 heap.cap = new_cap;
                 len = (new_len << 1) | 1;
@@ -1553,52 +1640,64 @@ public:
     //////////////////////////////////////////////////////////////////////
     #pragma region compare
 
+    constexpr bool operator==(Slice other) const
+    {
+        return Slice::compare(as_slice(), other) == Order::Equal;
+    }
+
+    constexpr bool operator!=(Slice other) const
+    {
+        return Slice::compare(as_slice(), other) != Order::Equal;
+    }
+
+    constexpr bool operator<(Slice other) const
+    {
+        return Slice::compare(as_slice(), other) == Order::Less;
+    }
+
+    constexpr bool operator>(Slice other) const
+    {
+        return Slice::compare(as_slice(), other) == Order::Greater;
+    }
+
+    constexpr bool operator<=(Slice other) const
+    {
+        return Slice::compare(as_slice(), other) != Order::Greater;
+    }
+
+    constexpr bool operator>=(Slice other) const
+    {
+        return Slice::compare(as_slice(), other) != Order::Less;
+    }
+
     constexpr bool operator==(String const& other) const
     {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) == Order::Equal;
+        return Slice::compare(as_slice(), other.as_slice()) == Order::Equal;
     }
 
     constexpr bool operator!=(String const& other) const
     {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) != Order::Equal;
+        return Slice::compare(as_slice(), other.as_slice()) != Order::Equal;
     }
 
     constexpr bool operator<(String const& other) const
     {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) == Order::Less;
+        return Slice::compare(as_slice(), other.as_slice()) == Order::Less;
     }
 
     constexpr bool operator>(String const& other) const
     {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) == Order::Greater;
+        return Slice::compare(as_slice(), other.as_slice()) == Order::Greater;
     }
 
     constexpr bool operator<=(String const& other) const
     {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) != Order::Greater;
+        return Slice::compare(as_slice(), other.as_slice()) != Order::Greater;
     }
 
     constexpr bool operator>=(String const& other) const
     {
-        return Comparator<Slice, Ordering::Order>::compare(
-            as_slice(), 
-            other.as_slice()
-        ) != Order::Less;
+        return Slice::compare(as_slice(), other.as_slice()) != Order::Less;
     }
 };
 
@@ -1608,10 +1707,7 @@ public:
 
     static constexpr Order compare(String const& left, String const& right)
     {
-        return Slice::compare(
-            left.as_slice(), 
-            right.as_slice()
-        );
+        return Slice::compare(left.as_slice(), right.as_slice());
     }
 };
 
@@ -1663,3 +1759,6 @@ _MNC_END
 #undef _MNC_BEGIN
 #undef _MNC_END
 #undef _GLOBAL_EXPORT
+#undef _MNC
+#undef _LVALUE
+#undef _RVALUE

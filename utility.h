@@ -16,7 +16,7 @@ _MNC_BEGIN
 #pragma region min-max
 
 template <typename T>
-requires (has_ParOrder<T>)
+requires (Has_ParOrder<T>)
 constexpr T min(T left, T right)
 {
     struct __throw 
@@ -29,17 +29,17 @@ constexpr T min(T left, T right)
         }
     };
 
-    switch (Comparator<T>::compare(left, right))
+    switch (Comparator<T, Ordering::ParOrder>::compare(left, right))
     {
         case ParOrder::Less:    return left;
-        case ParOrder::Equal:
+        case ParOrder::Equal:   [[fallthrough]];
         case ParOrder::Greater: return right;
         case ParOrder::UnEqual: __throw::FN_MIN_Comparison_Didnt_Return_Order();
     }
 }
 
 template <typename T>
-requires (has_ParOrder<T>)
+requires (Has_ParOrder<T>)
 constexpr T max(T left, T right)
 {
     struct __throw 
@@ -52,10 +52,10 @@ constexpr T max(T left, T right)
         }
     };
 
-    switch (Comparator<T>::compare(left, right))
+    switch (Comparator<T, Ordering::ParOrder>::compare(left, right))
     {
         case ParOrder::Greater: return left;
-        case ParOrder::Equal:
+        case ParOrder::Equal:   [[fallthrough]];
         case ParOrder::Less:    return right;
         case ParOrder::UnEqual: __throw::FN_MAX_Comparison_Didnt_Return_Order();
     }
@@ -125,18 +125,20 @@ constexpr T&& forward(remove_reference<T>&& arg) //always takes rvalue
 /////////////////////////////////////////////////////////////////////////////
 #pragma region HASH
 
-constexpr ulong operator""_hash(char const* s, ulong len)
+_MNC_END
+constexpr mnc::ulong operator""_hash(char const* s, mnc::ulong len)
 {
-    ulong hash = 14695981039346656037ULL;
-    for (ulong i = 0; i < len; ++i) 
+    mnc::ulong hash = 14695981039346656037ULL;
+    for (mnc::ulong i = 0; i < len; ++i) 
     {
         char c = s[i];
         //if ('A' <= c && c <= 'Z') c += ('a' - 'A');
-        hash ^= static_cast<ulong>(c);
+        hash ^= static_cast<mnc::ulong>(c);
         hash *= 1099511628211ULL;
     }
     return hash;
 }
+_MNC_BEGIN
 
 /////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////// class: Pair ///////////////////////////////
@@ -155,7 +157,7 @@ struct Pair {
 
 [[noreturn]] inline void unreachable(char const* file, int line, char const* msg)
 {
-    std::fprintf(stderr, "%s:%d: [ABORT WARNING] %s", file, line, msg);
+    std::fprintf(stderr, "[%s:%d] ;; ABORT WARNING ;; %s", file, line, msg);
     std::fflush(stderr);
 
     #if defined(_MSC_VER) && !defined(__clang__)
@@ -165,9 +167,17 @@ struct Pair {
     #else
         std::abort();
     #endif
-
-    using _0 = decltype(std::abort());
 }
+
+/////////////////////////////////////////////////////////////////////////////
+/////////////////////////////// error types /////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+#pragma region error types
+
+enum class FormatError: byte {
+    InvalidParameter,
+    MemoryRequestFailed
+};
 
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////

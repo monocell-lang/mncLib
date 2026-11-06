@@ -4,6 +4,12 @@
 #define _MNC_BEGIN namespace mnc {
 #define _MNC_END }
 
+#if defined(__cpp_concepts)
+    #define CONCEPT20 concept
+#else
+    #define CONCEPT20 static constexpr bool
+#endif
+
 _MNC_BEGIN
 
 /////////////////////////////////////////////////////////////////////////////
@@ -24,7 +30,6 @@ typedef unsigned char byte;
 typedef unsigned int uint;
 typedef unsigned long long ulong;
 typedef unsigned short ushort;
-typedef char32_t wchar;
 
 #ifdef __SIZEOF_FLOAT128__
 typedef __float128 f128;
@@ -126,7 +131,7 @@ struct NAUR;
 */
 
 template <ulong ID>
-class PACKAGE;
+class package;
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////
@@ -136,8 +141,13 @@ class PACKAGE;
 
 
 // same type
-template <typename T, typename S>
+template <typename T, typename... U>
 struct struct_same_type {
+    static constexpr bool value = (struct_same_type<T, U>::value && ...);
+};
+
+template <typename T, typename U>
+struct struct_same_type<T, U> {
     static constexpr bool value = false;
 };
 
@@ -146,12 +156,11 @@ struct struct_same_type<T, T> {
     static constexpr bool value = true;
 };
 
-
 template <typename... Ts>
-static constexpr bool same_type = true;
+static constexpr bool same_type = struct_same_type<Ts...>::value;
 
-template <typename T, typename... U>
-static constexpr bool same_type<T, U...> = (struct_same_type<T, U>::value && ...);
+template <typename T, typename S>
+CONCEPT20 same_as = struct_same_type<T, S>::value;
 
 
 // different types
@@ -724,7 +733,10 @@ static constexpr bool is_polymorphic_class = __is_polymorphic(T);
 template <typename T>
 static constexpr bool is_inheritable_class = !__is_final(T);
 
+template <typename T>
+static constexpr bool is_aggregate = __is_aggregate(T);
 
+#pragma endregion
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
@@ -769,13 +781,11 @@ struct struct_rvalue_reference<T, enable_if<same_type<remove_const<T>, void>>> {
 template <typename T>
 using rvalue_reference = typename struct_rvalue_reference<T>::type;
 
-
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 #pragma region function mod
-
 
 template <typename T>
 struct struct_remove_fn_mod {
@@ -895,14 +905,11 @@ struct struct_remove_fn_mod<Ret(Arg..., ...) const volatile &&> {
 template <typename T>
 using remove_fn_mod = typename struct_remove_fn_mod<T>::type;
 
-
-
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 #pragma region is_fn
-
 
 template <typename T>
 struct struct_is_fn {
@@ -939,16 +946,15 @@ struct struct_is_pointer_to_field<T class_type::*> {
 template <typename T>
 static constexpr bool is_pointer_to_field = struct_is_pointer_to_field<T>::value;
 
-
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
-#pragma region assert_exression
+#pragma region assert_expr
 
 
 /*  
-*   class: assert_exression
+*   class: assert_expr
 *   - Dùng để thực hiện các kiểm định SFINAE
 *   - Trong đó, Mỗi kiểm định kiểm tra tính hợp lệ (validity) của một biểu thức tại thời điểm biến dịch (compile-time)
 *   - Nếu tất cả biểu thức đều hợp lệ, trả về class template_pass (enable_if cũng trả về template_pass)
@@ -958,15 +964,15 @@ static constexpr bool is_pointer_to_field = struct_is_pointer_to_field<T>::value
 *
 *   Cơ chế:
 *   - Nếu mỗi biểu thức hợp lệ, decltype sẽ truy được kiểu của nó
-*   - Lúc đó, class assert_exression sẽ gom các kiểu đó lại thành class template_pass (nghĩa là từ "type gì" thành "có type")
-*   => Nếu muốn biểu thức trả về kiểu cụ thể thì đừng sử dụng class assert_exression
+*   - Lúc đó, class assert_expr sẽ gom các kiểu đó lại thành class template_pass (nghĩa là từ "type gì" thành "có type")
+*   => Nếu muốn biểu thức trả về kiểu cụ thể thì đừng sử dụng class assert_expr
 *
 *   Lưu ý:
-*   - Không sử dụng assert_exression để khởi tạo object
+*   - Không sử dụng assert_expr để khởi tạo object
 */
 
 template <typename... Req>
-using assert_exression = template_pass;
+using assert_expr = template_pass;
 
 
 /*  
@@ -982,7 +988,7 @@ using assert_exression = template_pass;
 */
 
 template <typename T>
-T&& declval() noexcept;
+T declval() noexcept;
 
 
 #pragma endregion
@@ -998,7 +1004,7 @@ struct struct_is_castible_from {
 };
 
 template <typename Dest, typename Source>
-struct struct_is_castible_from<Dest, Source, assert_exression<decltype(static_cast<Dest>(declval<Source>()))>> {
+struct struct_is_castible_from<Dest, Source, assert_expr<decltype(static_cast<Dest>(declval<Source>()))>> {
     static constexpr bool value = true;
 };
 
@@ -1011,7 +1017,7 @@ struct struct_is_implicitly_castible_from {
 };
 
 template <typename Dest, typename Source>
-struct struct_is_implicitly_castible_from<Dest, Source, assert_exression<decltype(declval<void(*)(Dest)>()(declval<Source>()))>> {
+struct struct_is_implicitly_castible_from<Dest, Source, assert_expr<decltype(declval<void(*)(Dest)>()(declval<Source>()))>> {
 
     // Cách đúng là kiểm tra "Dest x = declval<Source>()"
     // NHƯNG không thể ghi decltype(Dest x = declval<Source>())
@@ -1052,7 +1058,7 @@ struct struct_is_callable<T, Ret(Args...), enable_if<same_type<decltype(declval<
 };
 
 template <typename T, typename... Args> 
-struct struct_is_callable<T, _(Args...), assert_exression<decltype(declval<T>()(declval<Args>()...))>> { 
+struct struct_is_callable<T, _(Args...), assert_expr<decltype(declval<T>()(declval<Args>()...))>> { 
     static constexpr bool value = true;
     using return_type = decltype(declval<T>()(declval<Args>()...));
 };
@@ -1070,25 +1076,6 @@ using return_type = typename struct_is_callable<T, Signature>::return_type;
 /////////////////////////////////////////////////////////////////////////////
 #pragma region is_constructible
 
-template <typename T, typename = template_pass>
-struct struct_is_implicitly_default_constructible {
-    static constexpr bool value = false;
-    static constexpr bool value_noexcept = false;
-};
-
-template <typename T>
-struct struct_is_implicitly_default_constructible<T, assert_exression<decltype(declval<void(*)(T)>()({}))>> {
-    static constexpr bool value = true;
-    static constexpr bool value_noexcept = noexcept(declval<void(*)(T)>()({}));
-};
-
-template <typename T>
-static constexpr bool is_implicitly_default_constructible = struct_is_implicitly_default_constructible<T>::value;
-
-template <typename T>
-static constexpr bool is_noexcept_implicitly_default_constructible = struct_is_implicitly_default_constructible<T>::value_noexcept;
-
-
 template <typename T, typename... Args>
 static constexpr bool is_constructible_from = __is_constructible(T, Args...);
 
@@ -1098,26 +1085,14 @@ static constexpr bool is_default_constructible = __is_constructible(T);
 template <typename T>
 static constexpr bool is_copy_constructible = __is_constructible(T, T const&);
 
-template <>
-inline constexpr bool is_copy_constructible<void> = __is_constructible(void, void);
-
-template <>
-inline constexpr bool is_copy_constructible<void const> = __is_constructible(void const, void const);
-
 template <typename T>
 static constexpr bool is_move_constructible = __is_constructible(T, T&&);
-
-template <>
-inline constexpr bool is_move_constructible<void> = __is_constructible(void, void);
 
 template <typename T, typename S>
 static constexpr bool is_assignable_from = __is_assignable(T&, S);
 
 template <typename T>
 static constexpr bool is_copy_assignable = __is_assignable(T&, T const&);
-
-template <>
-inline constexpr bool is_copy_assignable<void> = __is_assignable(void, void);
 
 template <typename T>
 static constexpr bool is_move_assignable = __is_assignable(T&, T&&);
@@ -1131,15 +1106,62 @@ static constexpr bool is_copy_able = is_copy_constructible<T> && is_copy_assigna
 template <typename T>
 static constexpr bool is_move_able = is_move_constructible<T> && is_move_assignable<T>;
 
-template <typename T>
-static constexpr bool is_aggregate = __is_aggregate(T);
+#pragma endregion
+/////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+#pragma region is_explicit
 
+template <typename... Args>
+struct struct_is_implicitly_constructible
+{
+    template <typename T>
+    static void sink(T);
+
+    template <typename T, typename = void>
+    struct inner {
+        static constexpr bool value = false;
+    };
+
+    template <typename T>
+    struct inner<T, decltype(sink<T>({ declval<Args>()... }))> {
+        static constexpr bool value = true;
+    };
+
+    template <typename T>
+    static constexpr bool value = inner<T>::value;
+};
+
+template <typename T, typename... Args>
+static constexpr bool is_implicitly_constructible_from = struct_is_implicitly_constructible<Args...>::template value<T>;
+
+template <typename T>
+static constexpr bool is_implicitly_default_constructible = is_implicitly_constructible_from<T>;
+
+template <typename T>
+static constexpr bool is_implicitly_copy_constructible = is_implicitly_constructible_from<T, T const&>;
+
+template <typename T>
+static constexpr bool is_implicitly_move_constructible = is_implicitly_constructible_from<T, T&&>;
+
+template <typename T, typename... Args>
+static constexpr bool is_explicit_constructible_from = 
+is_constructible_from<T, Args...> && !is_implicitly_constructible_from<T, Args...>;
+
+template <typename T, typename... Args>
+static constexpr bool is_explicit_default_constructible = is_explicit_constructible_from<T>;
+
+template <typename T, typename... Args>
+static constexpr bool is_explicit_copy_constructible = is_explicit_constructible_from<T, T const&>;
+
+template <typename T, typename... Args>
+static constexpr bool is_explicit_move_constructible = is_explicit_constructible_from<T, T&&>;
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
-#pragma region is_constructible
+#pragma region is_noexcept
 
 template <typename T, typename... Args>
 static constexpr bool is_noexcept_constructible_from = __is_nothrow_constructible(T, Args...);
@@ -1172,7 +1194,7 @@ static constexpr bool is_noexcept_resource =
 (!is_move_constructible<T>    || is_noexcept_move_constructible<T>)    &&
 (!is_copy_assignable<T>       || is_noexcept_copy_assignable<T>)       &&
 (!is_move_assignable<T>       || is_noexcept_move_assignable<T>)       &&
-(/* destructible */ !true     || is_noexcept_destructible<T>);
+(!/* destructible */ true     || is_noexcept_destructible<T>);
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////
@@ -1189,14 +1211,8 @@ static constexpr bool is_trivially_default_constructible = __is_trivially_constr
 template <typename T>
 static constexpr bool is_trivially_copy_constructible = __is_trivially_constructible(T, T const&);
 
-template <>
-inline constexpr bool is_trivially_copy_constructible<void> = __is_trivially_constructible(void, void);
-
 template <typename T>
 static constexpr bool is_trivially_copy_assignable = __is_trivially_assignable(T&, T const&);
-
-template <>
-inline constexpr bool is_trivially_copy_assignable<void> = __is_trivially_assignable(void, void);
 
 template <typename T>
 static constexpr bool is_trivially_copy_able = is_trivially_copy_constructible<T> && is_trivially_copy_assignable<T>;
@@ -1204,56 +1220,14 @@ static constexpr bool is_trivially_copy_able = is_trivially_copy_constructible<T
 template <typename T>
 static constexpr bool is_trivially_move_constructible = __is_trivially_constructible(T, T&&);
 
-template <>
-inline constexpr bool is_trivially_move_constructible<void> = __is_trivially_constructible(void, void);
-
 template <typename T>
 static constexpr bool is_trivially_move_assignable = __is_trivially_assignable(T&, T&&);
-
-template <>
-inline constexpr bool is_trivially_move_assignable<void> = __is_trivially_assignable(void, void);
 
 template <typename T>
 static constexpr bool is_trivially_move_able = is_trivially_move_constructible<T> && is_trivially_move_assignable<T>;
 
 template <typename T>
-struct struct_is_trivially_destructible 
-{
-#if defined(__has_builtin)  // 1. Try standard GCC/Clang intrinsic
-
-    #if __has_builtin(__is_trivially_destructible)
-        static constexpr bool value = __is_trivially_destructible(T);
-    #else
-        static constexpr bool value = false;
-    #endif
-
-    
-#elif defined(_MSC_VER)     // 2. Try MSVC builtins
-
-    #if _MSC_VER >= 1900
-        static constexpr bool value = __is_trivially_destructible(T);
-    #else
-        static constexpr bool value = __has_trivial_destructor(T);
-    #endif
-
-#else                       // 3. Unknown compiler fallback
-
-    static constexpr bool value = false; 
-
-#endif
-};
-
-template <typename T>
-static constexpr bool is_trivially_destructible = struct_is_trivially_destructible<T>::value;
-
-#pragma endregion
-/////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////
-#pragma region has_operator
-
-
-
+static constexpr bool is_trivially_destructible = __is_trivially_destructible(T);
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////
@@ -2126,6 +2100,9 @@ public:
 template <typename Prefix_Pack, typename pack>
 static constexpr bool Pack_is_prefix = struct_Pack_is_prefix<Prefix_Pack, pack>::value;
 
+/////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
 
 template <typename T>
 struct struct_no_type_deduction {

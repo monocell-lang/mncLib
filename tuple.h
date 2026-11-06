@@ -96,21 +96,21 @@ private:
         template <typename... Tys>
         constexpr _Impl(Tys&&... elem)  // logical index of types
         requires (sizeof...(Tys) == sizeof...(Ts))
-        : TupleCell<map.backward[_Indices], Ts> { static_cast<Tys&&>(elem) } ... {}
+        : TupleCell<map.backward[_Indices], Ts> { Ts(static_cast<Tys&&>(elem)) } ... {}
 
         constexpr _Impl(_Impl const& other)
         requires (is_trivially_copy_constructible<Ts> && ...) = default;
 
         constexpr _Impl(_Impl const& other)
         requires ((is_copy_constructible<Ts> && ...) && (!is_trivially_copy_constructible<Ts> || ...))
-        : TupleCell<map.backward[_Indices], Ts> { static_cast<Cell<_Indices> const&>(other).data } ... {}
+        : TupleCell<map.backward[_Indices], Ts> { Ts(static_cast<Cell<_Indices> const&>(other).data) } ... {}
 
         constexpr _Impl(_Impl&& other)
         requires (is_trivially_move_constructible<Ts> && ...) = default;
         
         constexpr _Impl(_Impl&& other)
         requires ((is_move_constructible<Ts> && ...) && (!is_trivially_move_constructible<Ts> || ...))
-        : TupleCell<map.backward[_Indices], Ts> { static_cast<Cell<_Indices>&&>(other).data } ... {}
+        : TupleCell<map.backward[_Indices], Ts> { Ts(static_cast<Cell<_Indices>&&>(other).data) } ... {}
 
         constexpr _Impl& operator=(_Impl const&)
         requires (is_trivially_copy_assignable<Ts> && ...) = default;
@@ -159,21 +159,21 @@ private:
         template <typename... Tys>
         constexpr _Impl(Tys&&... elem)
         requires (sizeof...(Tys) == sizeof...(Ts))
-        : array { { static_cast<Tys&&>(elem) } ... } {}
+        : array { { Ts(static_cast<Tys&&>(elem)) } ... } {}
 
         constexpr _Impl(_Impl const&)
         requires (is_trivially_copy_constructible<First>) = default;
 
         constexpr _Impl(_Impl const& other)
         requires (is_copy_constructible<First> && !is_trivially_copy_constructible<First>)
-        : array { { other.array[_Indices].data } ... } {}
+        : array { { Ts(other.array[_Indices].data) } ... } {}
 
         constexpr _Impl(_Impl&&)
         requires (is_trivially_move_constructible<First>) = default;
 
         constexpr _Impl(_Impl&& other)
         requires (is_move_constructible<First> && !is_trivially_move_constructible<First>)
-        : array { { static_cast<_Impl&&>(other).array[_Indices].data } ... } {}
+        : array { { Ts(static_cast<_Impl&&>(other).array[_Indices].data) } ... } {}
 
         constexpr _Impl& operator=(_Impl const&)
         requires (is_trivially_copy_assignable<First>) = default;
@@ -210,21 +210,26 @@ private:
 
 public:
 
-    template <typename... Tys>
+    template <typename... Tys> 
+    //explicit((is_explicit_constructible_from<Ts, Tys> || ...)) 
     constexpr Tuple(Tys&&... elem)
     requires (sizeof...(Tys) == sizeof...(Ts) && (is_constructible_from<Ts, Tys&&> && ...))
-    : data { static_cast<Tys&&>(elem)... } {}
+    : data { Ts(static_cast<Tys&&>(elem))... } {}
 
+    //explicit((is_explicit_copy_constructible<Ts> || ...)) 
     constexpr Tuple(Tuple const& other)
     requires (is_trivially_copy_constructible<Ts> && ...) = default;
 
+    //explicit((is_explicit_copy_constructible<Ts> || ...)) 
     constexpr Tuple(Tuple const& other)
     requires ((is_copy_constructible<Ts> && ...) && (!is_trivially_copy_constructible<Ts> || ...))
     : data(other.data) {}
 
+    //explicit((is_explicit_move_constructible<Ts> || ...)) 
     constexpr Tuple(Tuple&& other)
     requires (is_trivially_move_constructible<Ts> && ...) = default;
     
+    //explicit((is_explicit_move_constructible<Ts> || ...)) 
     constexpr Tuple(Tuple&& other)
     requires ((is_move_constructible<Ts> && ...) && (!is_trivially_move_constructible<Ts> || ...))
     : data(static_cast<Tuple&&>(other).data) {}
@@ -323,14 +328,14 @@ private:
 
     static constexpr auto this_sequence = index_sequence_init<sizeof...(Ts)>{};
 
-    template <typename Self, typename Other, int... _Index>
-    static constexpr Self& assign(Self& self, Other&& other, index_sequence<_Index...>)
+    template <typename Left, typename Right, int... _Index>
+    static constexpr Left& assign(Left& left, Right&& right, index_sequence<_Index...>)
     {
-        if ((void*)&self == (void*)&other) 
-            return self;
+        if ((void*)&left == (void*)&right)
+            return left;
 
-        ((self.template get<_Index>() = static_cast<Other&&>(other).template get<_Index>()), ...);
-        return self;
+        ((left.template get<_Index>() = static_cast<Right&&>(right).template get<_Index>()), ...);
+        return left;
     }
 
 public:
@@ -530,7 +535,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) &&
         (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
-        (has_ParEqual<remove_const_reference<Ts>> && ...)
+        (Has_ParEqual<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator==(Tuple<Tys...> const& other) const
     {
@@ -541,7 +546,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) &&
         (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
-        (has_ParEqual<remove_const_reference<Ts>> && ...)
+        (Has_ParEqual<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator!=(Tuple<Tys...> const& other) const
     {
@@ -552,7 +557,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
         (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
-        (has_ParOrder<remove_const_reference<Ts>> && ...)
+        (Has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator<(Tuple<Tys...> const& other) const
     {
@@ -563,7 +568,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
         (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
-        (has_ParOrder<remove_const_reference<Ts>> && ...)
+        (Has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator>(Tuple<Tys...> const& other) const
     {
@@ -574,7 +579,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
         (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
-        (has_ParOrder<remove_const_reference<Ts>> && ...)
+        (Has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator<=(Tuple<Tys...> const& other) const
     {
@@ -586,7 +591,7 @@ public:
     requires (
         (sizeof...(Ts) == sizeof...(Tys)) && 
         (equivalent_tuple<Tuple<Ts...>, Tuple<Tys...>>) &&
-        (has_ParOrder<remove_const_reference<Ts>> && ...)
+        (Has_ParOrder<remove_const_reference<Ts>> && ...)
     )
     constexpr bool operator>=(Tuple<Tys...> const& other) const
     {
@@ -668,9 +673,9 @@ public:
 
 private:
 
-    template <typename Fn, typename Self, int... _Index>
-    static constexpr decltype(auto) apply(Fn&& fn, Self&& self, index_sequence<_Index...>) {
-        return fn(static_cast<Self&&>(self).template get<_Index>()...);
+    template <typename Fn, typename Tuple, int... _Index>
+    static constexpr decltype(auto) apply(Fn&& fn, Tuple&& self, index_sequence<_Index...>) {
+        return fn(static_cast<Tuple&&>(self).template get<_Index>()...);
     }
 };
 

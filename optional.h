@@ -15,16 +15,11 @@ _MNC_BEGIN
 #pragma region Opt<T, E>
 
 template <typename T, typename E>
-class Opt;
-
-template <typename T, typename E>
 requires (
-    (is_move_constructible<T> || same_type<T, void>) && 
-    (is_move_constructible<E> && is_copy_constructible<E> || same_type<E, void>) &&
-    !is_rvalue_reference<T> &&
-    !is_reference<E>
+    (same_type<T, void> || is_move_constructible<T>) && !is_rvalue_reference<T> && 
+    (same_type<E, void> || (is_move_constructible<E> && is_copy_constructible<E>)) && !is_reference<E>
 )
-class Opt<T, E> {
+class [[nodiscard]] Opt {
 private:
 
     struct __throw 
@@ -191,9 +186,9 @@ public:
 
     /* constexpr */ Opt(Opt const& other)
     requires (
-        (!same_type<T, void> && !is_trivially_copy_constructible<T> ||
-        !same_type<E, void> && !is_trivially_copy_constructible<E>) &&
-        (is_copy_constructible<T> || same_type<T, void>)
+        ((!same_type<T, void> && !is_trivially_copy_constructible<T>) ||
+        (!same_type<E, void> && !is_trivially_copy_constructible<E>)) &&
+        (same_type<T, void> || is_copy_constructible<T>)
     )
     : _isOK(other._isOK)
     {
@@ -257,15 +252,15 @@ public:
 
     constexpr Opt& operator=(Opt const& other) 
     requires (
-        (is_trivially_copy_constructible<T> || same_type<T, void>) &&
-        (is_trivially_copy_constructible<E> || same_type<E, void>)
+        (same_type<T, void> || is_trivially_copy_constructible<T>) &&
+        (same_type<E, void> || is_trivially_copy_constructible<E>)
     ) = default;
 
     /* constexpr */ Opt& operator=(Opt const& other)
     requires (
-        (!is_trivially_copy_constructible<T> && !same_type<T, void> ||
-        !is_trivially_copy_constructible<E> && !same_type<E, void>) &&
-        (is_copy_constructible<T> || same_type<T, void>)
+        ((!same_type<T, void> && !is_trivially_copy_constructible<T>) ||
+        (!same_type<E, void> && !is_trivially_copy_constructible<E>)) &&
+        (same_type<T, void> || is_copy_constructible<T>)
     )
     {
         if (this == &other)
@@ -302,14 +297,14 @@ public:
 
     constexpr Opt& operator=(Opt&& other) 
     requires (
-        (is_trivially_move_constructible<T> || same_type<T, void>) &&
-        (is_trivially_move_constructible<E> || same_type<E, void>)
+        (same_type<T, void> || is_trivially_move_constructible<T>) &&
+        (same_type<E, void> || is_trivially_move_constructible<E>)
     ) = default;
 
     /* constexpr */ Opt& operator=(Opt&& other)
     requires (
-        (!is_trivially_move_constructible<T> && !same_type<T, void>) ||
-        (!is_trivially_move_constructible<E> && !same_type<E, void>)
+        (!same_type<T, void> && !is_trivially_move_constructible<T>) ||
+        (!same_type<E, void> && !is_trivially_move_constructible<E>)
     )
     {
         if (this == &other)
@@ -632,7 +627,9 @@ public:
     // fallback: (none) -> T
     template <typename Fn>
     constexpr T value_or_call(Fn&& fallback) const& 
-    requires (!same_type<T, void> && is_copy_constructible<T> && is_callable<Fn&&, T()>)
+    requires (
+        is_callable<Fn&&, T()> && 
+        (same_type<T, void> || is_copy_constructible<T>))
     {
         if (isOK())
         {
@@ -650,7 +647,7 @@ public:
     // fallback: (none) -> T
     template <typename Fn>
     constexpr T value_or_call(Fn&& fallback) && 
-    requires (!same_type<T, void> && is_callable<Fn&&, T()>)
+    requires (is_callable<Fn&&, T()>)
     {
         if (isOK())
         {
@@ -689,7 +686,7 @@ public:
         typename Out = return_type<Fn&&, Sig<_, Ref<T const>>>
     >
     constexpr Opt<Out, E> map(Fn&& mapper) const& 
-    requires (!same_type<Out, NAUR> && (is_copy_constructible<T> || same_type<T, void>))
+    requires (!same_type<Out, NAUR> && (same_type<T, void> || is_copy_constructible<T>))
     {
         if (isOK())
         {
@@ -749,7 +746,7 @@ public:
         typename Out = return_type<Fn&&, Sig<_, Ref<E const>>>
     >
     constexpr Opt<T, Out> map_err(Fn&& mapper) const& 
-    requires (!same_type<Out, NAUR> && is_copy_constructible<T>)
+    requires (!same_type<Out, NAUR> && (same_type<T, void> || is_copy_constructible<T>))
     {
         if (isOK())
         {
@@ -828,7 +825,7 @@ public:
     requires (
         !same_type<typename AsOpt<Out>::val, NAUR> && 
         same_type<typename AsOpt<Out>::err, E> &&
-        (is_copy_constructible<T> || same_type<T, void>))
+        (same_type<T, void> || is_copy_constructible<T>))
     {
         if (isOK())
         {
@@ -889,7 +886,7 @@ public:
     requires (
         same_type<typename AsOpt<Out>::val, T> &&
         !same_type<typename AsOpt<Out>::err, NAUR> &&
-        (is_copy_constructible<T> || same_type<T, void>))
+        (same_type<T, void> || is_copy_constructible<T>))
     {
         if (isOK())
         {
@@ -947,8 +944,7 @@ public:
     requires (
         same_type<E, void> && 
         is_callable<Fn&&, Sig<bool, Ref<T const>>> &&
-        is_copy_constructible<T> &&
-        !same_type<T, void>)
+        !same_type<T, void> && is_copy_constructible<T>)
     {
         if constexpr (!is_lvalue_reference<T>)
         {
@@ -1000,7 +996,7 @@ using Result = Opt<T, E>;
 /////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////// DEBUG ////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////
-#if 1
+#if 0
 
 struct Trivial {};
 

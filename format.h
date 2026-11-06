@@ -1,23 +1,3 @@
-/*****************************************************************************************#\
-##                                                                                        ##
-##                ____ _____ _     _     _____ ___  ____  __  __    _  _____              ##
-##               / ___| ____| |   | |   |  ___/ _ \|  _ \|  \/  |  / \|_   _|             ##
-##              | |   |  _| | |   | |   | |_ | | | | |_) | |\/| | / _ \ | |               ##
-##              | |___| |___| |___| |___|  _|| |_| |  _ <| |  | |/ ___ \| |               ##
-##               \____|_____|_____|_____|_|   \___/|_| \_\_|  |_/_/   \_\_|               ##
-##                                                                                        ##
-##               MONOCELL FORMATING LIBRARY v1.0 (C++20 or later)                         ##
-##                                                                                        ##
-##                                                                                        ##
-##                        Minimalist.  Powerful.  Terminal-friendly.                      ##
-##                                                                                        ##
-##                  => Just format() it. Just align() it. Just color() it.                ##
-##                                                                                        ##
-\#*****************************************************************************************/
-
-
-
-
 #pragma once
 #include <cstdio>
 #include <cstdlib>
@@ -26,195 +6,8 @@
 #include "type_traits.h"
 #include "optional.h"
 #include "styling.h"
-
-
-
-
-
-// ================================================================================================
-//                           HOW TO USE THIS LIB 👉👉                   (cheatsheet below 🤫👇)
-// ================================================================================================
-//
-// 1. PLACEHOLDERS & DUAL-SECTION SYNTAX
-// ----------------------------------------------------------------------------
-// Every format placeholder inside the format string follows a unified dual-section structure:
-//     
-//     { [Text Format Portion] ; [Type Format Portion] }
-//
-//   a) Text Format Portion:
-//      - Extracted right after '{' up to the first ';' or closing '}'.
-//      - Evaluated at compile-time via "consteval FormatIR::generate(char const*, ulong)".
-//      - Computes Alignment/Padding, Styles (Bold, Italic, etc.), Foreground, and Background colors.
-//      - Applicable to ALL types.
-//      - If omitted or left blank, defaults to FormatIR::generate("", 0).
-//
-//   b) Type Format Portion:
-//      - Extracted after the first ';' up to the closing '}'.
-//      - Free-form syntax per type, BUT must NOT contain unescaped '{' or '}'.
-//      - May contain inner semicolons ';' (e.g., for recursive type formatting like Opt<T, E>).
-//
-//   c) Arity & Argument Matching Rules:
-//      - The number of placeholders '{}' MUST EXACTLY MATCH the number of arguments provided 
-//        in the variadic parameter pack ('Ts...').
-//      - Mismatched argument count triggers a Compile-time Error (via '__throw').
-//
-//      Examples:
-//        println("x = {} and y = {}", 10, 20);  // OK: 2 placeholders, 2 args
-//        println("x = {} and y = {}", 10);      // ERROR: Argument count mismatch!
-//
-//   d) Escaping Rules:
-//      - Escaping curly braces is fully supported: '{{' outputs '{' and '}}' outputs '}'.
-//      - Escaping is strictly evaluated AFTER formatting.
-//      - Escapes ('{{' or '}}') are FORBIDDEN inside format placeholders!
-//
-//      Example:
-//        println("workspace {{ theme: {}, folder: {} }}", theme, folder);
-//        => "workspace { theme: dark, folder: /bin }"
-//
-// 2. GLOBAL STYLING (GLOBAL THEME / 'self')
-// ----------------------------------------------------------------------------
-// Global styling is detached from the format string itself and passed as a separate 
-// 'FormatIR' parameter using the '_fmt' User-Defined Literal.
-//
-//   a) Passing Global FormatIR:
-//      - Pass a 'FormatIR' object as the FIRST argument before the format string.
-//      - Created via '_fmt' string literal operator.
-//
-//      Syntax:
-//        println(" [Text Format Specifiers] "_fmt, "Format String...", args...);
-//
-//   b) Scope of Global Theme:
-//      - Applies to all literal text segments in the format string.
-//      - Applies to placeholders that explicitly request inheritance via '{self}'.
-//      - If omitted, default global theme is 'FormatIR::generate("", 0)'.
-//
-//   c) Examples:
-//        println(" <30* @green "_fmt, "x = {}", 123);
-//        println(" @navy $cream "_fmt, "Name tag: {self}, ID: {self ; .hex}", "Elen", 255);
-//
-// 3. STYLE INHERITANCE FROM 'self'
-// ----------------------------------------------------------------------------
-// Any argument placeholder can inherit the exact 'FormatIR' of the global theme ('self').
-//
-//     { self ; [Type Format Portion] }
-//
-//   a) Rules & Constraints:
-//      - Spaces around 'self' are ignored, but the identifier 'self' must be contiguous.
-//      - NO additional text format specifiers can be merged with 'self' (DRY principle).
-//
-//      Valid Examples:
-//        println(" $orange !i "_fmt, "Project: {self} | Count: {self ; .dec}", "mncLib", 42);
-//        => Both "mncLib" and '42' inherit [italic + orange background].
-//
-//      Invalid Example:
-//        "{self @Red}"  // ERROR: Merging other rules with 'self' is forbidden!
-//
-// 4. TEXT FORMAT SYNTAX SPECIFICATION
-// ----------------------------------------------------------------------------
-// Composed of up to 4 orthogonal format specifiers in ANY order, separated by optional whitespace:
-//
-//   [1] ALIGNMENT & PADDING:
-//       Syntax: [< | > | _][width][optional: fill_char]
-//       - '<' => Left alignment
-//       - '>' => Right alignment
-//       - '_' => Center alignment
-//       - width: Positive integer specifying minimum field width
-//       - fill_char: Single character used for padding (defaults to space ' ')
-//
-//       Examples: 
-//         <30   => Left alignment, width 30
-//         _20*  => Center alignment, width 20, padded with '*'
-//         >15a  => Right alignment, width 15, padded with 'a'
-//
-//   [2] TEXT STYLES (STACKABLE):
-//       Syntax: ![r|b|i|u|s|d]...
-//       - '!' prefix followed by stackable modifier flags:
-//           - 'r' => Regular
-//           - 'b' => Bold
-//           - 'i' => Italic
-//           - 'u' => Underline
-//           - 's' => Strikethrough
-//           - 'd' => Dim
-//
-//       Examples: 
-//         !bi   => Bold + Italic
-//         !isu  => Italic + Strikethrough + Underline
-//
-//   [3] TEXT COLOR (FOREGROUND):
-//       Syntax: @[color_spec]
-//       - Color Name  : @Name / @name         
-//       - RGB Tuple   : @(red, green, blue)  (values: 0-255)
-//       - 6-Digit Hex : @#RRGGBB / @#rrggbb
-//
-//       Examples: 
-//         Names     : @Carnelian, @Green, @gray, @Pink
-//         RGB Tuples: @(220, 20, 60), @(120, 200, 255)
-//         Hex       : @#7D5048, @#ff7f34
-//
-//   [4] BACKGROUND COLOR:
-//       Syntax: $[color_spec]
-//       - Color Name  : $Name / $name
-//       - RGB Tuple   : $(red, green, blue)  (values: 0-255)
-//       - 6-Digit Hex : $#RRGGBB / $#rrggbb
-//
-//       Examples:
-//         Names     : $Navy,$cream
-//         RGB Tuples: $(40, 40, 40) //         Hex       :$#2B2D42
-//
-// 5. TYPE FORMATTERS SPECIFICATION
-// ----------------------------------------------------------------------------
-//   - Strings (char const*, char[N], std::string_view):
-//     Syntax: (empty) | .normal | .debug
-//
-//   - Integers (short, int, long, long long - signed/unsigned):
-//     Syntax: (empty) | .dec | .+dec | .bin | .hex | .Hex | .oct
-//
-//   - Floating Point (float, double, long double):
-//     Syntax: .(precision)(specifier)
-//     - Specifiers: 'f' (fixed), 'e' (scientific), 'g' (general - default)
-//     Examples:
-//       .g     => Default precision (2) + general format
-//       .06    => Precision 6 + general format
-//       .10e   => Precision 10 + scientific format
-//
-//   - Optional / Result (Opt<T, E>):
-//     Syntax: .[(Format For T) ; (Format For E)]
-//     (Recursively parses format options for both Value and Error states)
-//
-// ================================================================================================
-// CHEAT SHEET & QUICK EXAMPLES
-// ================================================================================================
-//
-//   {}                                   =>  Default text format, default type format
-//   {<30}                                =>  Left align width 30
-//   {_30_}                               =>  Center align width 30, fill with '_'
-//   {<30_ @Carnelian $Green}             =>  Left align, fill '_', Text color, BG color
-//   {_20* @(179, 27, 27) $(0, 255, 0)}   =>  Center align, fill '*', RGB colors
-//   {>35. !ui @#FFCA03 $#002B56}         =>  Right align, Underline+Italic, Hex colors
-//
-//
-//   Example 1:
-//   println("{} = {;.hex}", "Value", 255);    => Default styling, 'Value = 0xff'
-//
-//
-//   Example 2:
-//   println(
-//      "<30 !i @(120, 200, 255) $#2B2D42"_fmt, 
-//      "x = {!b @Pink ; .hex}, y = {self; .6f}, s = {; .debug}", 
-//      123, 
-//      1.666667
-//      "hel\t\\lo"
-//   );
-//
-//   => Global theme  : Left align 30, Italic, rgb(120, 200, 255) (ice blue) text, #2B2D42 (dark blue) background
-//      123           : bold, pink text, formatted in hex
-//      1.666667      : inherited global theme, formatted in fixed 6 decimal places
-//      "hel\t\\lo"   : no theme (default theme), printed with \t and \ highlighed for debugging
-//
-// ================================================================================================
-
-
-
+#include "string.h"
+#include "utility.h"
 
 
 #define _MNC_BEGIN namespace mnc {
@@ -227,71 +20,22 @@ _MNC_BEGIN
 //////////////////////////////////////////////////////////////////////
 #pragma region FormatBuffer
 
-enum class FormatError: byte {
-    InvalidParameter,
-    MemoryRequestFailed
-};
-
-class CharArray {
-private:
-
-    char const* data;
-    ulong len;
-
-public:
-
-    template <ulong N>
-    constexpr CharArray(char const(&data)[N]): data(data), len(N - 1) {}
-    constexpr CharArray(CharArray const&) = default;
-    constexpr CharArray(CharArray&&) = default;
-    constexpr CharArray& operator=(CharArray const&) = default;
-    constexpr CharArray& operator=(CharArray&&) = default;
-    constexpr CharArray() = delete;
-    constexpr ~CharArray() = default;
-
-    constexpr char const& operator[](ulong index) const&
-    {
-        return data[index];
-    }
-
-    constexpr char const&& operator[](ulong index) const&&
-    {
-        return static_cast<char const&&>(data[index]);
-    }
-
-    constexpr char const* begin() const
-    {
-        return data;
-    }
-
-    constexpr char const* end() const
-    {
-        return data + len;
-    }
-
-    constexpr ulong size() const
-    {
-        return len;
-    }
-
-    constexpr operator char const*() const
-    {
-        return data;
-    }
-
-    constexpr char const& operator*() const
-    {
-        return *data;
-    }
+template <typename T>
+concept Is_Raw_Buffer = requires (T& buffer, char const* chars, ulong size, char ch, CharArray arr) {
+    { buffer.write(chars, size) } -> same_as<Result<void, FormatError>>;
+    { buffer.write(ch, size) } -> same_as<Result<void, FormatError>>;
+    { buffer.write(arr) } -> same_as<Result<void, FormatError>>;
+    { buffer.data() } -> same_as<char const*>;
+    { buffer.size() } -> same_as<ulong>;
 };
 
 template <typename T>
-static constexpr bool has_buffer_trait = requires (T& buffer, char const* chars, ulong size, char ch, CharArray arr, FormatIR IR) {
-    requires (same_type<decltype(buffer.write(chars, size, IR)), Result<void, FormatError>>);
-    requires (same_type<decltype(buffer.write(arr, IR)), Result<void, FormatError>>);
-    requires (same_type<decltype(buffer.write(ch, size, IR)), Result<void, FormatError>>);
-    requires (same_type<decltype(buffer.data()), char const*>);
-    requires (same_type<decltype(buffer.size()), ulong>);
+concept Is_Buffer = requires (T& buffer, char const* chars, ulong size, char ch, CharArray arr, FormatIR IR) {
+    { buffer.write(chars, size, IR) } -> same_as<Result<void, FormatError>>;
+    { buffer.write(ch, size, IR) } -> same_as<Result<void, FormatError>>;
+    { buffer.write(arr, IR) } -> same_as<Result<void, FormatError>>;
+    { buffer.data() } -> same_as<char const*>;
+    { buffer.size() } -> same_as<ulong>;
 };
 
 class FormatBuffer {
@@ -308,7 +52,7 @@ private:
 
 public:
 
-    FormatBuffer(): len(0) {}
+    FormatBuffer() { len = 0; stack.buffer[0] = '\0'; }
     FormatBuffer(FormatBuffer const& other) = delete;
     FormatBuffer(FormatBuffer&& other): len(other.len)
     {
@@ -558,196 +302,24 @@ public:
         return { True{} };
     }
 
-    Result<void, FormatError> write(CharArray chars)
-    {
-        return write(chars, chars.size());
-    }
-
     Result<void, FormatError> write(char const* chars, ulong write_len, FormatIR IR)
     {
-        #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
-
-        struct helper
-        {
-            static void format_into(char* buffer, byte value)
-            {
-                buffer[2] = '0' + (value % 10);
-                buffer[1] = '0' + (value / 10) % 10;
-                buffer[0] = '0' + (value / 100) % 10;
-            }
-        };
-
-        bool styled = false;
-        if (IR.text_color == True{})
-        {
-            Color8bit color_vec = IR.text_color.unwrap();
-            char buffer[] = "\e[38;2;000;000;000m";
-            helper::format_into(buffer + 7, color_vec.red);
-            helper::format_into(buffer + 11, color_vec.green);
-            helper::format_into(buffer + 15, color_vec.blue);
-            GUARD(write(buffer));
-            styled = true;
-        }
-
-        if (IR.background_color == True{})
-        {
-            Color8bit color_vec = IR.background_color.unwrap();
-            char buffer[] = "\e[48;2;000;000;000m";
-            helper::format_into(buffer + 7, color_vec.red);
-            helper::format_into(buffer + 11, color_vec.green);
-            helper::format_into(buffer + 15, color_vec.blue);
-            GUARD(write(buffer));
-            styled = true;
-        }
-
-        if (IR.style != Style::Regular)
-        {
-            uint flags = +IR.style;
-            char buffer[] = "\e[_;_;_;_;_m";
-            int i = 2;
-            if (flags & +Style::Bold)      { buffer[i] = '1'; i += 2; }
-            if (flags & +Style::Dim)       { buffer[i] = '2'; i += 2; }
-            if (flags & +Style::Italic)    { buffer[i] = '3'; i += 2; }
-            if (flags & +Style::Underline) { buffer[i] = '4'; i += 2; }
-            if (flags & +Style::Strike)    { buffer[i] = '9'; i += 2; }
-            buffer[i - 1] = 'm';
-            GUARD(write(buffer, i));
-            styled = true;
-        }
-
-        if (IR.align.width > write_len)
-        {
-            ulong fill_len = IR.align.width - write_len;
-            switch (IR.align.mode)
-            {
-                case Align::Mode::Left:
-                {
-                    GUARD(write(chars, write_len));
-                    GUARD(write(IR.align.fill, fill_len));
-                    break;
-                }
-                case Align::Mode::Right:
-                {
-                    GUARD(write(IR.align.fill, fill_len));
-                    GUARD(write(chars, write_len));
-                    break;
-                }
-                case Align::Mode::Center:
-                {
-                    GUARD(write(IR.align.fill, fill_len / 2));
-                    GUARD(write(chars, write_len));
-                    GUARD(write(IR.align.fill, fill_len - fill_len / 2));
-                    break;
-                }
-            }
-        }
-        else
-        {
-            GUARD(write(chars, write_len));
-        }
-
-        if (styled)
-            return write("\e[0m");
-        else
-            return { True{} };
-
-        #undef GUARD
+        return IR.write_into(*this, chars, write_len);
     }
 
     Result<void, FormatError> write(char ch, ulong count, FormatIR IR)
     {
-        #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
-
-        struct helper
-        {
-            static void format_into(char* buffer, byte value)
-            {
-                buffer[2] = '0' + (value % 10);
-                buffer[1] = '0' + (value / 10) % 10;
-                buffer[0] = '0' + (value / 100) % 10;
-            }
-        };
-
-        bool styled = false;
-        if (IR.text_color == True{})
-        {
-            Color8bit color_vec = IR.text_color.unwrap();
-            char buffer[] = "\e[38;2;000;000;000m";
-            helper::format_into(buffer + 7, color_vec.red);
-            helper::format_into(buffer + 11, color_vec.green);
-            helper::format_into(buffer + 15, color_vec.blue);
-            GUARD(write(buffer));
-            styled = true;
-        }
-
-        if (IR.background_color == True{})
-        {
-            Color8bit color_vec = IR.background_color.unwrap();
-            char buffer[] = "\e[48;2;000;000;000m";
-            helper::format_into(buffer + 7, color_vec.red);
-            helper::format_into(buffer + 11, color_vec.green);
-            helper::format_into(buffer + 15, color_vec.blue);
-            GUARD(write(buffer));
-            styled = true;
-        }
-
-        if (IR.style != Style::Regular)
-        {
-            uint flags = +IR.style;
-            char buffer[] = "\e[_;_;_;_;_m";
-            int i = 2;
-            if (flags & +Style::Bold)      { buffer[i] = '1'; i += 2; }
-            if (flags & +Style::Dim)       { buffer[i] = '2'; i += 2; }
-            if (flags & +Style::Italic)    { buffer[i] = '3'; i += 2; }
-            if (flags & +Style::Underline) { buffer[i] = '4'; i += 2; }
-            if (flags & +Style::Strike)    { buffer[i] = '9'; i += 2; }
-            buffer[i - 1] = 'm';
-            GUARD(write(buffer, i));
-            styled = true;
-        }
-
-        if (IR.align.width > count)
-        {
-            ulong fill_len = IR.align.width - count;
-            switch (IR.align.mode)
-            {
-                case Align::Mode::Left:
-                {
-                    GUARD(write(ch, count));
-                    GUARD(write(IR.align.fill, fill_len));
-                    break;
-                }
-                case Align::Mode::Right:
-                {
-                    GUARD(write(IR.align.fill, fill_len));
-                    GUARD(write(ch, count));
-                    break;
-                }
-                case Align::Mode::Center:
-                {
-                    GUARD(write(IR.align.fill, fill_len / 2));
-                    GUARD(write(ch, count));
-                    GUARD(write(IR.align.fill, fill_len - fill_len / 2));
-                    break;
-                }
-            }
-        }
-        else
-        {
-            GUARD(write(ch, count));
-        }
-
-        if (styled)
-            return write("\e[0m");
-        else
-            return { True{} };
-
-        #undef GUARD
+        return IR.write_into(*this, ch, count);
     }
 
-    Result<void, FormatError> write(CharArray chars, FormatIR IR)
+    Result<void, FormatError> write(CharArray arr)
     {
-        return write(chars, chars.size(), IR);
+        return write(arr.data(), arr.size());
+    }
+
+    Result<void, FormatError> write(CharArray arr, FormatIR IR)
+    {
+        return IR.write_into(*this, arr.data(), arr.size());
     }
 
     ulong size() const
@@ -780,25 +352,19 @@ public:
 template <typename T>
 class Formatter;
 
-/*
-*   - require: format(FormatBuffer&, T, FormatIR) const
-*/
 template <typename T>
-static constexpr bool has_formatter = requires (const Formatter<T> formatter, char const* params, ulong len, FormatBuffer& buffer, T const& value, FormatIR IR) {
+concept Has_Formatter = requires (const Formatter<T> formatter, char const* params, ulong len, FormatBuffer& buffer, T const& value, FormatIR IR) {
     Formatter<T>(params, len);
-    requires (same_type<decltype(formatter.format(buffer, value, IR)), Result<void, FormatError>>);
+    { formatter.format(buffer, value, IR) } -> same_as<Result<void, FormatError>>;
     requires (is_trivially_copy_able<Formatter<T>>);
     requires (is_trivially_move_able<Formatter<T>>);
     requires (is_trivially_destructible<Formatter<T>>);
 };
 
-/*
-*   - require: format(FormatBuffer&, T, FormatIR) const
-*/
 template <typename T>
-static constexpr bool has_default_formatter = requires (const Formatter<T> formatter, FormatBuffer& buffer, T const& value, FormatIR IR) {
+concept Has_Default_Formatter = requires (const Formatter<T> formatter, FormatBuffer& buffer, T const& value, FormatIR IR) {
     Formatter<T>();
-    requires (same_type<decltype(formatter.format(buffer, value, IR)), Result<void, FormatError>>);
+    { formatter.format(buffer, value, IR) } -> same_as<Result<void, FormatError>>;
     requires (is_trivially_copy_able<Formatter<T>>);
     requires (is_trivially_move_able<Formatter<T>>);
     requires (is_trivially_destructible<Formatter<T>>);
@@ -930,7 +496,7 @@ public:
 
     // debug ignores IR
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, char const* value, ulong len, FormatIR IR = FormatIR {}) const
     {
         #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
@@ -1017,7 +583,7 @@ public:
 
     // debug ignores IR
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, char const* value, FormatIR IR = FormatIR {}) const
     {
         return format(buffer, value, std::strlen(value), IR);
@@ -1025,10 +591,35 @@ public:
 
     // debug ignores IR
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, CharArray value, FormatIR IR = FormatIR {}) const
     {
         return format(buffer, value, value.size(), IR);
+    }
+};
+
+template <typename T>
+requires (
+    same_type<T, String> || 
+    same_type<T, Slice>
+)
+class Formatter<T> {
+private:
+
+    Formatter<char const*> base;
+
+public:
+
+    consteval Formatter() {}
+    consteval Formatter(char const* params, ulong len): base(params, len) {}
+    template <ulong N>
+    consteval Formatter(char const (&params)[N]): base(params, N - 1) {}
+
+    template <typename Buffer>
+    requires (Is_Buffer<Buffer>)
+    constexpr Result<void, FormatError> format(Buffer& buffer, T const& value, FormatIR IR = FormatIR{}) const
+    {
+        return base.format(buffer, value.data(), value.size(), IR);
     }
 };
 
@@ -1213,7 +804,7 @@ public:
     consteval Formatter(char const (&params)[N]): Formatter(params, N - 1) {}
 
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, T value, FormatIR IR = FormatIR {}) const
     {
         switch (mode)
@@ -1575,7 +1166,7 @@ public:
     consteval Formatter(char const (&params)[N]): Formatter(params, N - 1) {}
 
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, T value, FormatIR IR = FormatIR {}) const
     {
         char buffer_temp[PRECISION_UPPER_LIMIT + 30];
@@ -1621,7 +1212,7 @@ class Formatter<T*> {
 public:
 
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, T const* value, FormatIR IR = FormatIR {}) const
     {
         if (value == nullptr)
@@ -1658,7 +1249,7 @@ class Formatter<bool> {
 public:
 
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, bool value, FormatIR IR = FormatIR {}) const
     {
         if (value)
@@ -1673,7 +1264,7 @@ class Formatter<char> {
 public:
 
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, char value, FormatIR IR = FormatIR {}) const
     {
         return buffer.write(value, 1, IR);
@@ -1685,7 +1276,7 @@ class Formatter<decltype(nullptr)> {
 public:
 
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, decltype(nullptr), FormatIR IR = FormatIR {}) const
     {
         return buffer.write("0000000000000000", IR);
@@ -1695,7 +1286,7 @@ public:
 
 template <typename T, ulong N>
 requires (
-    has_default_formatter<remove_const<T>> &&
+    Has_Default_Formatter<remove_const<T>> &&
     !same_type<remove_const<T>, char>
 )
 class Formatter<T[N]> {
@@ -1708,7 +1299,7 @@ public:
     consteval Formatter() {}
 
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, T const(&value)[N], FormatIR IR = FormatIR {}) const
     {
         #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
@@ -1734,8 +1325,8 @@ template <typename T, typename E>
 requires (
     !is_const<T> && !is_volatile<T> && 
     !is_const<E> && !is_volatile<E> && 
-    (has_formatter<T> || has_default_formatter<T> || same_type<T, void>) &&
-    (has_formatter<E> || has_default_formatter<E> || same_type<E, void>)
+    (Has_Formatter<T> || Has_Default_Formatter<T> || same_type<T, void>) &&
+    (Has_Formatter<E> || Has_Default_Formatter<E> || same_type<E, void>)
 )
 class Formatter<Opt<T, E>> {
 private:
@@ -1983,11 +1574,11 @@ public:
                 __throw::FORMATTER_OPT_Expected_Semicolon_Between_Format_Arguments();
 
 
-            if constexpr (!same_type<T, void> && has_formatter<T>)
+            if constexpr (!same_type<T, void> && Has_Formatter<T>)
             {
                 data.fmt_val = Formatter<T>(tstart, tlen);
             }
-            else if constexpr (!same_type<T, void> && has_default_formatter<T>)
+            else if constexpr (!same_type<T, void> && Has_Default_Formatter<T>)
             {
                 if (!helper::is_empty_str(fstart, flen))
                     __throw::FORMATTER_OPT_No_Format_Option_Available_For_True();
@@ -2000,11 +1591,11 @@ public:
             }
 
 
-            if constexpr (!same_type<E, void> && has_formatter<E>)
+            if constexpr (!same_type<E, void> && Has_Formatter<E>)
             {
                 data.fmt_err = Formatter<E>(fstart, flen);
             }
-            else if constexpr (!same_type<E, void> && has_default_formatter<E>)
+            else if constexpr (!same_type<E, void> && Has_Default_Formatter<E>)
             {
                 if (!helper::is_empty_str(fstart, flen))
                     __throw::FORMATTER_OPT_No_Format_Option_Available_For_False();
@@ -2022,7 +1613,7 @@ public:
     consteval Formatter(char const(&params)[N]): Formatter(params, N - 1) {}
 
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, Opt<T, E> const& value, FormatIR IR = FormatIR {}) const
     {
         #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
@@ -2054,9 +1645,9 @@ public:
 
 #pragma endregion
 //////////////////////////////////////////////////////////////////////
-////////////////////// class: FormatString ///////////////////////////
+////////////////////// class: TextFormatter //////////////////////////
 //////////////////////////////////////////////////////////////////////
-#pragma region FormatString<Ts...>
+#pragma region TextFormatter<Ts...>
 
     // {}
     // {<30}
@@ -2129,9 +1720,8 @@ public:
 *
 */
 
-
 template <typename... Ts>
-requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
+requires ((Has_Formatter<Ts> || Has_Default_Formatter<Ts>) && ...)
 class TextFormatter {
 private:
 
@@ -2176,7 +1766,7 @@ private:
         template <typename T>
         static consteval Formatter<T> make_formatter(char const* params, ulong len)
         {
-            if constexpr (has_formatter<T>)
+            if constexpr (Has_Formatter<T>)
             {
                 return Formatter<T>(params, len);
             }
@@ -2498,7 +2088,7 @@ private:
 private:
 
     template <typename Buffer, int... _Index>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(index_sequence<_Index...>, Buffer& buffer, Ts const&... values) const
     {
         #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
@@ -2573,7 +2163,7 @@ private:
     }
 
     template <typename Buffer, int... _Index>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(index_sequence<_Index...>, FormatIR self_text_fmt, Buffer& buffer, Ts const&... values) const
     {
         #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
@@ -2995,13 +2585,13 @@ public:
     : TextFormatter(Format, N - 1, index_sequence_init<sizeof...(Ts)>{}) {}
 
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, Ts const&... values) const {
         return format(index_sequence_init<sizeof...(Ts)>{}, buffer, values...);
     }
     
     template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
+    requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(FormatIR self_text_fmt, Buffer& buffer, Ts const&... values) const {
         return format(index_sequence_init<sizeof...(Ts)>{}, self_text_fmt, buffer, values...);
     }
@@ -3011,7 +2601,7 @@ template <typename... Ts>
 using FormatString = TextFormatter<no_type_deduction<Ts>...>;
 
 template <typename... Ts>
-requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
+requires ((Has_Formatter<Ts> || Has_Default_Formatter<Ts>) && ...)
 void print(FormatString<Ts...> Format, Ts const&... values)
 {
     FormatBuffer buffer;
@@ -3020,7 +2610,7 @@ void print(FormatString<Ts...> Format, Ts const&... values)
 }
 
 template <typename... Ts>
-requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
+requires ((Has_Formatter<Ts> || Has_Default_Formatter<Ts>) && ...)
 void println(FormatString<Ts...> Format, Ts const&... values)          // ME PUSH CHARS FASSSST! 🦍⚡
 {
     FormatBuffer buffer;
@@ -3029,65 +2619,45 @@ void println(FormatString<Ts...> Format, Ts const&... values)          // ME PUS
     std::fwrite(buffer.data(), 1, buffer.size(), stdout);
 }
 
+template <typename... Ts>
+requires ((Has_Formatter<Ts> || Has_Default_Formatter<Ts>) && ...)
+constexpr String format(FormatString<Ts...> Format, Ts const&... values)
+{
+    String buffer;
+    Format.format(buffer, values...).unwrap();
+    return buffer;
+}
 
 
 
 
 /*
 
-template <typename... Ts>
-requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
-Result<void, FormatError> print(FormatIR self, FormatString<Ts...> Format, Ts const&... values)
-{
-    FormatBuffer buffer;
-    auto res = Format.format(self, buffer, values...);
-    if (res == False{}) return res;
-    std::fwrite(buffer.data(), 1, buffer.size(), stdout);
-    return { True{} };
-}
-
-template <typename... Ts>
-requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
-Result<void, FormatError> println(FormatIR self, FormatString<Ts...> Format, Ts const&... values)
-{
-    FormatBuffer buffer;
-    auto res = Format.format(self, buffer, values...);
-    if (res == False{}) return res;
-    res = buffer.write("\n");
-    if (res == False{}) return res;
-    std::fwrite(buffer.data(), 1, buffer.size(), stdout);
-    return { True{} };
-}
-
-*/
-
-
-namespace debug
-{
     template <typename... Ts>
-    requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
-    void println(FormatString<Ts...> Format, Ts const&... values)
+    requires ((Has_Formatter<Ts> || Has_Default_Formatter<Ts>) && ...)
+    Result<void, FormatError> print(FormatIR self, FormatString<Ts...> Format, Ts const&... values)
     {
         FormatBuffer buffer;
-        Format.format(FormatIR {}, buffer, values...).unwrap();
-        buffer.write("\n").unwrap();
-        mnc::println("{;.debug}", buffer.data());
+        auto res = Format.format(self, buffer, values...);
+        if (res == False{}) return res;
+        std::fwrite(buffer.data(), 1, buffer.size(), stdout);
+        return { True{} };
     }
 
     template <typename... Ts>
-    requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
+    requires ((Has_Formatter<Ts> || Has_Default_Formatter<Ts>) && ...)
     Result<void, FormatError> println(FormatIR self, FormatString<Ts...> Format, Ts const&... values)
     {
         FormatBuffer buffer;
-        Format.format(self, buffer, values...).unwrap();
-        buffer.write("\n").unwrap();
-        mnc::println("{;.debug}", buffer.data());
+        auto res = Format.format(self, buffer, values...);
+        if (res == False{}) return res;
+        res = buffer.write("\n");
+        if (res == False{}) return res;
+        std::fwrite(buffer.data(), 1, buffer.size(), stdout);
+        return { True{} };
     }
-}
 
-template class TextFormatter<int, int, double, double, char>;
-template void print(FormatString<int>, int const&);
-template void println(FormatString<int>, int const&);
+*/
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////

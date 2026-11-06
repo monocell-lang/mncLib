@@ -1,6 +1,7 @@
 #pragma once
+#include "type_traits.h"
 #include "optional.h"
-
+#include "utility.h"
 
 
 #define _MNC_BEGIN namespace mnc {
@@ -170,19 +171,6 @@ public:
 //////////////////////////////////////////////////////////////////////
 #pragma region FormatIR
 
-constexpr ulong operator""_hash(char const* s, ulong len)
-{
-    ulong hash = 14695981039346656037ULL;
-    for (ulong i = 0; i < len; ++i) 
-    {
-        char c = s[i];
-        //if ('A' <= c && c <= 'Z') c += ('a' - 'A');
-        hash ^= static_cast<ulong>(c);
-        hash *= 1099511628211ULL;
-    }
-    return hash;
-}
-
 struct FormatIR {
 public:
 
@@ -250,7 +238,7 @@ public:
                         case '>': return Align::Mode::Right;
                         case '_': return Align::Mode::Center;
                     }
-                    unreachable();
+                    return Align::Mode::Left;
                 };
 
                 Align::Mode mode = decode(*p);
@@ -585,49 +573,208 @@ public:
         return generate(params, N - 1);
     }
 
-    constexpr ulong added_width() const
-    {
-        ulong result = 0;
-        bool styled = false;
+private:
 
+    template <typename Buffer>
+    static constexpr bool has_raw_write = requires (Buffer& buffer, char const* chars, char ch, ulong size) { 
+        { buffer.write(chars, size) } -> same_as<Result<void, FormatError>>; 
+        { buffer.write(chars, size) } -> same_as<Result<void, FormatError>>; 
+    };
+
+public:
+
+    template <typename Buffer>
+    requires (has_raw_write<Buffer>)
+    Result<void, FormatError> write_into(Buffer& buffer, char const* chars, ulong write_len)
+    {
+        #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
+
+        struct helper
+        {
+            static void format_into(char* prefix, byte value)
+            {
+                prefix[2] = '0' + (value % 10);
+                prefix[1] = '0' + (value / 10) % 10;
+                prefix[0] = '0' + (value / 100) % 10;
+            }
+        };
+
+        bool styled = false;
         if (text_color == True{})
         {
-            //buffer.write("\e[38;2;000;000;000m");
-            result += 19; 
+            Color8bit color_vec = text_color.unwrap();
+            char prefix[] = "\e[38;2;000;000;000m";
+            helper::format_into(prefix + 7, color_vec.red);
+            helper::format_into(prefix + 11, color_vec.green);
+            helper::format_into(prefix + 15, color_vec.blue);
+            GUARD(buffer.write(prefix, 19));
             styled = true;
         }
 
         if (background_color == True{})
         {
-            // buffer.write("\e[48;2;000;000;000m")
-            result += 19;  
+            Color8bit color_vec = background_color.unwrap();
+            char prefix[] = "\e[48;2;000;000;000m";
+            helper::format_into(prefix + 7, color_vec.red);
+            helper::format_into(prefix + 11, color_vec.green);
+            helper::format_into(prefix + 15, color_vec.blue);
+            GUARD(buffer.write(prefix, 19));
             styled = true;
         }
 
         if (style != Style::Regular)
         {
             uint flags = +style;
-            // buffer = "\e[_;_;_;_;_m";
+            char prefix[] = "\e[_;_;_;_;_m";
             int i = 2;
-            if (flags & +Style::Bold)      { i += 2; }
-            if (flags & +Style::Dim)       { i += 2; }
-            if (flags & +Style::Italic)    { i += 2; }
-            if (flags & +Style::Underline) { i += 2; }
-            if (flags & +Style::Strike)    { i += 2; }
-            // buffer[i - 1] = 'm';
-            result += i;
+            if (flags & +Style::Bold)      { prefix[i] = '1'; i += 2; }
+            if (flags & +Style::Dim)       { prefix[i] = '2'; i += 2; }
+            if (flags & +Style::Italic)    { prefix[i] = '3'; i += 2; }
+            if (flags & +Style::Underline) { prefix[i] = '4'; i += 2; }
+            if (flags & +Style::Strike)    { prefix[i] = '9'; i += 2; }
+            prefix[i - 1] = 'm';
+            GUARD(buffer.write(prefix, i));
             styled = true;
         }
 
-        if (styled)
+        if (align.width > write_len)
         {
-            // buffer.write("\e[0m");
-            result += 4;
+            ulong fill_len = align.width - write_len;
+            switch (align.mode)
+            {
+                case Align::Mode::Left:
+                {
+                    GUARD(buffer.write(chars, write_len));
+                    GUARD(buffer.write(align.fill, fill_len));
+                    break;
+                }
+                case Align::Mode::Right:
+                {
+                    GUARD(buffer.write(align.fill, fill_len));
+                    GUARD(buffer.write(chars, write_len));
+                    break;
+                }
+                case Align::Mode::Center:
+                {
+                    GUARD(buffer.write(align.fill, fill_len / 2));
+                    GUARD(buffer.write(chars, write_len));
+                    GUARD(buffer.write(align.fill, fill_len - fill_len / 2));
+                    break;
+                }
+            }
+        }
+        else
+        {
+            GUARD(buffer.write(chars, write_len));
         }
 
-        return result;
+        if (styled)
+            return buffer.write("\e[0m", 4);
+        else
+            return { True{} };
+
+        #undef GUARD
+    }
+
+    template <typename Buffer>
+    requires (has_raw_write<Buffer>)
+    Result<void, FormatError> write_into(Buffer& buffer, char ch, ulong count)
+    {
+        #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
+
+        struct helper
+        {
+            static void format_into(char* prefix, byte value)
+            {
+                prefix[2] = '0' + (value % 10);
+                prefix[1] = '0' + (value / 10) % 10;
+                prefix[0] = '0' + (value / 100) % 10;
+            }
+        };
+
+        bool styled = false;
+        if (text_color == True{})
+        {
+            Color8bit color_vec = text_color.unwrap();
+            char prefix[] = "\e[38;2;000;000;000m";
+            helper::format_into(prefix + 7, color_vec.red);
+            helper::format_into(prefix + 11, color_vec.green);
+            helper::format_into(prefix + 15, color_vec.blue);
+            GUARD(buffer.write(prefix, 19));
+            styled = true;
+        }
+
+        if (background_color == True{})
+        {
+            Color8bit color_vec = background_color.unwrap();
+            char prefix[] = "\e[48;2;000;000;000m";
+            helper::format_into(prefix + 7, color_vec.red);
+            helper::format_into(prefix + 11, color_vec.green);
+            helper::format_into(prefix + 15, color_vec.blue);
+            GUARD(buffer.write(prefix, 19));
+            styled = true;
+        }
+
+        if (style != Style::Regular)
+        {
+            uint flags = +style;
+            char prefix[] = "\e[_;_;_;_;_m";
+            int i = 2;
+            if (flags & +Style::Bold)      { prefix[i] = '1'; i += 2; }
+            if (flags & +Style::Dim)       { prefix[i] = '2'; i += 2; }
+            if (flags & +Style::Italic)    { prefix[i] = '3'; i += 2; }
+            if (flags & +Style::Underline) { prefix[i] = '4'; i += 2; }
+            if (flags & +Style::Strike)    { prefix[i] = '9'; i += 2; }
+            prefix[i - 1] = 'm';
+            GUARD(buffer.write(prefix, i));
+            styled = true;
+        }
+
+        if (align.width > count)
+        {
+            ulong fill_len = align.width - count;
+            switch (align.mode)
+            {
+                case Align::Mode::Left:
+                {
+                    GUARD(buffer.write(ch, count));
+                    GUARD(buffer.write(align.fill, fill_len));
+                    break;
+                }
+                case Align::Mode::Right:
+                {
+                    GUARD(buffer.write(align.fill, fill_len));
+                    GUARD(buffer.write(ch, count));
+                    break;
+                }
+                case Align::Mode::Center:
+                {
+                    GUARD(buffer.write(align.fill, fill_len / 2));
+                    GUARD(buffer.write(ch, count));
+                    GUARD(buffer.write(align.fill, fill_len - fill_len / 2));
+                    break;
+                }
+            }
+        }
+        else
+        {
+            GUARD(buffer.write(ch, count));
+        }
+
+        if (styled)
+            return buffer.write("\e[0m", 4);
+        else
+            return { True{} };
+
+        #undef GUARD
     }
 };
+
+_MNC_END
+consteval mnc::FormatIR operator""_fmt(char const* _, mnc::ulong __) {
+    return mnc::FormatIR::generate(_, __);
+}
+_MNC_BEGIN
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////

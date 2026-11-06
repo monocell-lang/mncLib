@@ -1,9 +1,10 @@
 #pragma once
 #include <cstdio>
 #include <cstring>
+#include "optional.h"
 #include "compare.h"
+#include "styling.h"
 #include "utility.h"
-#include "format.h"
 
 
 #define _MNC_BEGIN namespace mnc {
@@ -27,6 +28,59 @@ constexpr String operator""_str(char const*, ulong);
 
 _GLOBAL_EXPORT(mnc::operator""_str)
 _GLOBAL_EXPORT(mnc::operator""_slice)
+
+//////////////////////////////////////////////////////////////////////
+//////////////////////////// class: CharArray ////////////////////////
+//////////////////////////////////////////////////////////////////////
+#pragma region CharArray
+
+class CharArray {
+private:
+
+    char const* _data;
+    ulong len;
+
+public:
+
+    template <ulong N>
+    constexpr CharArray(char const(&data)[N]): _data(data), len(N - 1) {}
+    constexpr CharArray(CharArray const&) = default;
+    constexpr CharArray(CharArray&&) = default;
+    constexpr CharArray& operator=(CharArray const&) = default;
+    constexpr CharArray& operator=(CharArray&&) = default;
+    constexpr CharArray() = delete;
+    constexpr ~CharArray() = default;
+
+    constexpr char const& operator[](ulong index) const&
+    {
+        return _data[index];
+    }
+
+    constexpr char const&& operator[](ulong index) const&&
+    {
+        return static_cast<char const&&>(_data[index]);
+    }
+
+    constexpr char const* begin() const
+    {
+        return _data;
+    }
+
+    constexpr char const* end() const
+    {
+        return _data + len;
+    }
+
+    constexpr char const* data() const
+    {
+        return _data;
+    }
+
+    constexpr ulong size() const
+    {
+        return len;
+    }
+};
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////////// class: Slice ////////////////////////////
@@ -84,10 +138,7 @@ public:
     constexpr ~Slice() = default;
 
     template <ulong N>
-    constexpr explicit Slice(char const (&data)[N]): _data(data), len(N - 1) {}
-
-    template <ulong N>
-    static constexpr Slice make(char const (&data)[N]) { return Slice(data); }
+    static constexpr Slice from(char const (&data)[N]) { return Slice { data, N - 1 }; }
 
 private:
 
@@ -356,7 +407,7 @@ public:
         return Slice { _data, len - max_count };
     }
 
-    constexpr String into_str() const;
+    constexpr String to_str() const;
 
     //////////////////////////////////////////////////////////////////////
     ///////////////////////////// fn: find ///////////////////////////////
@@ -438,27 +489,6 @@ public:
     }
 };
 
-template <>
-class Formatter<Slice> {
-private:
-
-    Formatter<char const*> base;
-
-public:
-
-    consteval Formatter() {}
-    consteval Formatter(char const* params, ulong len): base(params, len) {}
-    template <ulong N>
-    consteval Formatter(char const (&params)[N]): base(params, N - 1) {}
-
-    template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
-    constexpr Result<void, FormatError> format(Buffer& buffer, Slice value, FormatIR IR = FormatIR{}) const
-    {
-        return base.format(buffer, value.data(), value.size(), IR);
-    }
-};
-
 //////////////////////////////////////////////////////////////////////
 //////////////////////////// class: String ///////////////////////////
 //////////////////////////////////////////////////////////////////////
@@ -466,6 +496,8 @@ public:
 
 class String {
 private:
+
+    friend class Slice;
 
     struct __throw
     {
@@ -570,6 +602,7 @@ private:
     //////////////////////////////////////////////////////////////////////
     //////////////////////////////// MAIN ////////////////////////////////
     //////////////////////////////////////////////////////////////////////
+    #pragma region main
 
 private:
 
@@ -585,31 +618,13 @@ public:
 
     friend constexpr String operator""_str(char const* _, ulong __) 
     {
-        return Slice { _, __ }.into_str();
+        return Slice { _, __ }.to_str();
     }
 
     constexpr String()
     {
         len = 0;
         stack.buffer[0] = '\0';
-    }
-
-    constexpr explicit String(Slice other): stack{}
-    {
-        if (other.size() <= STACK_CAPACITY) // STACK
-        {
-            helper::memcpy(stack.buffer, other.data(), other.size());
-            stack.buffer[other.size()] = '\0';
-            len = (other.size() << 1) | 0;
-        }
-        else // HEAP
-        {
-            heap.cap = helper::goodsize(other.size());
-            heap.buffer = helper::alloc(heap.cap + 1);
-            helper::memcpy(heap.buffer, other.data(), other.size());
-            heap.buffer[other.size()] = '\0';
-            len = (other.size() << 1) | 1;
-        }
     }
 
     constexpr String(String const& other) = delete;
@@ -650,14 +665,14 @@ public:
         String storage;
         if consteval
         {
-            storage = other.into_str();
+            storage = other.to_str();
             other = storage.as_slice();
         }
         else
         {
             if (as_slice().overlaps(other))
             {
-                storage = other.into_str();
+                storage = other.to_str();
                 other = storage.as_slice();
             }
         }
@@ -746,6 +761,12 @@ public:
         return *this;
     }
 
+    template <ulong N>
+    static constexpr String from(char const(&data)[N])
+    {
+        return Slice { data, N - 1 }.to_str();
+    }
+
     static constexpr String with_capacity(ulong capacity)
     {
         if (capacity <= STACK_CAPACITY) 
@@ -801,7 +822,7 @@ public:
 
     constexpr String clone() const
     {
-        return as_slice().into_str();
+        return as_slice().to_str();
     }
 
     constexpr char* begin()
@@ -844,18 +865,20 @@ public:
             return stack.buffer;
     }
 
-    constexpr Slice as_slice() const&
+    constexpr operator Slice() const
+    {
+        return as_slice();
+    }
+
+    constexpr Slice as_slice() const
     {
         return Slice { data(), size() };
     }
 
-    constexpr Slice slice(ulong start, ulong max_len) const&
+    constexpr Slice slice(ulong start, ulong max_len) const
     {
         return as_slice().slice(start, max_len);
     }
-
-    constexpr Slice as_slice() && = delete;
-    constexpr Slice slice(ulong start, ulong max_len) && = delete;
 
     //////////////////////////////////////////////////////////////////////
     ///////////////////////////// fn: operator[] /////////////////////////
@@ -930,13 +953,13 @@ public:
     constexpr String& push_back(char ch) &
     {
         char arr[] = { ch, '\0' };
-        return _LVALUE append(Slice(arr));
+        return _LVALUE append(Slice::from(arr));
     }
 
     constexpr String&& push_back(char ch) &&
     {
         char arr[] = { ch, '\0'  };
-        return _RVALUE append(Slice(arr));
+        return _RVALUE append(Slice::from(arr));
     }
 
     constexpr Option<char> pop_back()
@@ -972,13 +995,13 @@ public:
     constexpr String& push_front(char ch) &
     {
         char arr[] = { ch, '\0'  };
-        return _LVALUE insert(0, Slice(arr));
+        return _LVALUE insert(0, Slice::from(arr));
     }
 
     constexpr String&& push_front(char ch) &&
     {
         char arr[] = { ch, '\0'  };
-        return _RVALUE insert(0, Slice(arr));
+        return _RVALUE insert(0, Slice::from(arr));
     }
 
     constexpr Option<char> pop_front()
@@ -1032,31 +1055,6 @@ public:
         return String(_MNC mov(*this)).append(other);
     }
 
-    constexpr String& append(String const& other) &
-    {
-        return _LVALUE append(other.as_slice());
-    }
-
-    constexpr String&& append(String const& other) &&
-    {
-        return _RVALUE append(other.as_slice());
-    }
-
-    constexpr String& operator+=(String const& other) &
-    {
-        return _LVALUE append(other.as_slice());
-    }
-
-    constexpr String&& operator+=(String const& other) &&
-    {
-        return _RVALUE append(other.as_slice());
-    }
-
-    constexpr String operator+(String const& other) &&
-    {
-        return String(_MNC mov(*this)).append(other.as_slice());
-    }
-
     //////////////////////////////////////////////////////////////////////
     ///////////////////////////// fn: insert /////////////////////////////
     //////////////////////////////////////////////////////////////////////
@@ -1073,7 +1071,7 @@ public:
         String storage;
         if consteval
         {
-            storage = other.into_str();
+            storage = other.to_str();
             other = storage.as_slice();
         }
         else
@@ -1082,7 +1080,7 @@ public:
             bool cond2 = !slice(0, at).has_subslice(other);
             if (cond1 && cond2)
             {
-                storage = other.into_str();
+                storage = other.to_str();
                 other = storage.as_slice();
             }
         }
@@ -1144,16 +1142,6 @@ public:
     constexpr String&& insert(ulong at, Slice other) &&
     {
         return static_cast<String&&>(_LVALUE insert(at, other));
-    }
-
-    constexpr String& insert(ulong at, String const& other) &
-    {
-        return _LVALUE insert(at, other.as_slice());
-    }
-
-    constexpr String&& insert(ulong at, String const& other) &&
-    {
-        return _RVALUE insert(at, other.as_slice());
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -1229,7 +1217,7 @@ public:
         String storage;
         if consteval
         {
-            storage = other.into_str();
+            storage = other.to_str();
             other = storage.as_slice();
         }
         else
@@ -1238,7 +1226,7 @@ public:
             bool cond2 = !slice(0, at).has_subslice(other);
             if (cond1 && cond2)
             {
-                storage = other.into_str();
+                storage = other.to_str();
                 other = storage.as_slice();
             }
         }
@@ -1303,16 +1291,6 @@ public:
         return static_cast<String&&>(_LVALUE replace(at, max_range, other));
     }
 
-    constexpr String& replace(ulong at, ulong max_range, String const& other) &
-    {
-        return _LVALUE replace(at, max_range, other.as_slice());
-    }
-
-    constexpr String&& replace(ulong at, ulong max_range, String const& other) &&
-    {
-        return _RVALUE replace(at, max_range, other.as_slice());
-    }
-
     //////////////////////////////////////////////////////////////////////
     ///////////////////////////// fn: trim ///////////////////////////////
     //////////////////////////////////////////////////////////////////////
@@ -1361,102 +1339,6 @@ public:
     //////////////////////////////////////////////////////////////////////
     #pragma region write
 
-private:
-
-    template <typename Fn>
-    constexpr Result<void, FormatError> write_helper(Fn&& spec_write, ulong size, FormatIR IR)
-    {
-        #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
-
-        struct helper
-        {
-            static void format_into(char* buffer, byte value)
-            {
-                buffer[2] = '0' + (value % 10);
-                buffer[1] = '0' + (value / 10) % 10;
-                buffer[0] = '0' + (value / 100) % 10;
-            }
-        };
-
-        bool styled = false;
-        if (IR.text_color == True{})
-        {
-            Color8bit color_vec = IR.text_color.unwrap();
-            char buffer[] = "\e[38;2;000;000;000m";
-            helper::format_into(buffer + 7, color_vec.red);
-            helper::format_into(buffer + 11, color_vec.green);
-            helper::format_into(buffer + 15, color_vec.blue);
-            GUARD(write(buffer));
-            styled = true;
-        }
-
-        if (IR.background_color == True{})
-        {
-            Color8bit color_vec = IR.background_color.unwrap();
-            char buffer[] = "\e[48;2;000;000;000m";
-            helper::format_into(buffer + 7, color_vec.red);
-            helper::format_into(buffer + 11, color_vec.green);
-            helper::format_into(buffer + 15, color_vec.blue);
-            GUARD(write(buffer));
-            styled = true;
-        }
-
-        if (IR.style != Style::Regular)
-        {
-            uint flags = +IR.style;
-            char buffer[] = "\e[_;_;_;_;_m";
-            int i = 2;
-            if (flags & +Style::Bold)      { buffer[i] = '1'; i += 2; }
-            if (flags & +Style::Dim)       { buffer[i] = '2'; i += 2; }
-            if (flags & +Style::Italic)    { buffer[i] = '3'; i += 2; }
-            if (flags & +Style::Underline) { buffer[i] = '4'; i += 2; }
-            if (flags & +Style::Strike)    { buffer[i] = '9'; i += 2; }
-            buffer[i - 1] = 'm';
-            GUARD(write(buffer, i));
-            styled = true;
-        }
-
-        if (IR.align.width > size)
-        {
-            ulong fill_len = IR.align.width - size;
-            switch (IR.align.mode)
-            {
-                case Align::Mode::Left:
-                {
-                    GUARD(spec_write());
-                    GUARD(write(IR.align.fill, fill_len));
-                    break;
-                }
-                case Align::Mode::Right:
-                {
-                    GUARD(write(IR.align.fill, fill_len));
-                    GUARD(spec_write());
-                    break;
-                }
-                case Align::Mode::Center:
-                {
-                    GUARD(write(IR.align.fill, fill_len / 2));
-                    GUARD(spec_write());
-                    GUARD(write(IR.align.fill, fill_len - fill_len / 2));
-                    break;
-                }
-            }
-        }
-        else
-        {
-            GUARD(spec_write());
-        }
-
-        if (styled)
-            return write("\e[0m");
-        else
-            return { True{} };
-
-        #undef GUARD
-    }
-
-public:
-
     constexpr Result<void, FormatError> write(char const* chars, ulong write_len)
     {
         if (write_len == 0)
@@ -1468,7 +1350,7 @@ public:
         String storage;
         if consteval
         {
-            storage = Slice { chars, write_len }.into_str();
+            storage = Slice { chars, write_len }.to_str();
             chars = storage.data();
             write_len = storage.size();
         }
@@ -1478,7 +1360,7 @@ public:
             bool cond2 = !as_slice().has_subslice(Slice { chars, write_len });
             if (cond1 && cond2)
             {
-                storage = Slice { chars, write_len }.into_str();
+                storage = Slice { chars, write_len }.to_str();
                 chars = storage.data();
                 write_len = storage.size();
             }
@@ -1539,11 +1421,6 @@ public:
         }
 
         return { True{} };
-    }
-
-    constexpr Result<void, FormatError> write(CharArray chars)
-    {
-        return write(chars, chars.size());
     }
 
     constexpr Result<void, FormatError> write(char ch, ulong count)
@@ -1610,29 +1487,22 @@ public:
 
     constexpr Result<void, FormatError> write(char const* chars, ulong write_len, FormatIR IR)
     {
-        return write_helper
-        (
-            [&]() { return write(chars, write_len); },
-            write_len, IR
-        );
-    }
-
-    constexpr Result<void, FormatError> write(CharArray chars, FormatIR IR)
-    {
-        return write_helper
-        (
-            [&]() { return write(chars, chars.size()); },
-            chars.size(), IR
-        );
+        return IR.write_into(*this, chars, write_len);
     }
 
     constexpr Result<void, FormatError> write(char ch, ulong count, FormatIR IR)
     {
-        return write_helper
-        (
-            [&]() { return write(ch, count); },
-            count, IR
-        );
+        return IR.write_into(*this, ch, count);
+    }
+
+    constexpr Result<void, FormatError> write(CharArray arr)
+    {
+        return write(arr.data(), arr.size());
+    }
+
+    constexpr Result<void, FormatError> write(CharArray arr, FormatIR IR)
+    {
+        return IR.write_into(*this, arr.data(), arr.size());
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -1669,36 +1539,6 @@ public:
     {
         return Slice::compare(as_slice(), other) != Order::Less;
     }
-
-    constexpr bool operator==(String const& other) const
-    {
-        return Slice::compare(as_slice(), other.as_slice()) == Order::Equal;
-    }
-
-    constexpr bool operator!=(String const& other) const
-    {
-        return Slice::compare(as_slice(), other.as_slice()) != Order::Equal;
-    }
-
-    constexpr bool operator<(String const& other) const
-    {
-        return Slice::compare(as_slice(), other.as_slice()) == Order::Less;
-    }
-
-    constexpr bool operator>(String const& other) const
-    {
-        return Slice::compare(as_slice(), other.as_slice()) == Order::Greater;
-    }
-
-    constexpr bool operator<=(String const& other) const
-    {
-        return Slice::compare(as_slice(), other.as_slice()) != Order::Greater;
-    }
-
-    constexpr bool operator>=(String const& other) const
-    {
-        return Slice::compare(as_slice(), other.as_slice()) != Order::Less;
-    }
 };
 
 template <>
@@ -1711,43 +1551,24 @@ public:
     }
 };
 
-template <>
-class Formatter<String> {
-private:
-
-    Formatter<char const*> base;
-
-public:
-
-    consteval Formatter(): base() {}
-    consteval Formatter(char const* params, ulong len): base(params, len) {}
-    template <ulong N>
-    consteval Formatter(char const (&params)[N]): base(params, N - 1) {}
-
-    template <typename Buffer>
-    requires (has_buffer_trait<Buffer>)
-    constexpr Result<void, FormatError> format(Buffer& buffer, String const& value, FormatIR IR = FormatIR{}) const
+constexpr String Slice::to_str() const
+{
+    String result;
+    if (size() <= String::STACK_CAPACITY) // STACK
     {
-        return base.format(buffer, value.data(), value.size(), IR);
+        String::helper::memcpy(result.stack.buffer, data(), size());
+        result.stack.buffer[size()] = '\0';
+        result.len = (size() << 1) | 0;
     }
-};
-
-template <typename... Ts>
-requires ((has_formatter<Ts> || has_default_formatter<Ts>) && ...)
-constexpr String format(FormatString<Ts...> Format, Ts const&... values)
-{
-    String buffer;
-    Format.format(buffer, values...).unwrap();
-    return buffer;
-}
-
-/////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////
-
-constexpr String Slice::into_str() const
-{
-    return String(*this);
+    else // HEAP
+    {
+        result.heap.cap = String::helper::goodsize(size());
+        result.heap.buffer = String::helper::alloc(result.heap.cap + 1);
+        String::helper::memcpy(result.heap.buffer, data(), size());
+        result.heap.buffer[size()] = '\0';
+        result.len = (size() << 1) | 1;
+    }
+    return result;
 }
 
 /////////////////////////////////////////////////////////////////////////////

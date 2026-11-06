@@ -140,23 +140,23 @@ template <typename T, Ordering Trait>
 class Comparator;
 
 template <typename T>
-static constexpr bool has_Order = requires (T const& left, T const& right) {
-    requires (same_type<decltype(Comparator<T, Ordering::Order>::compare(left, right)), Order>);
+concept Has_Order = requires (T const& left, T const& right) {
+    { Comparator<T, Ordering::Order>::compare(left, right) } -> same_as<Order>;
 };
 
 template <typename T>
-static constexpr bool has_ParOrder = requires (T const& left, T const& right) {
-    requires (same_type<decltype(Comparator<T, Ordering::ParOrder>::compare(left, right)), ParOrder>);
+concept Has_ParOrder = requires (T const& left, T const& right) {
+    { Comparator<T, Ordering::ParOrder>::compare(left, right) } -> same_as<ParOrder>;
 };
 
 template <typename T>
-static constexpr bool has_Equal = requires (T const& left, T const& right) {
-    requires (same_type<decltype(Comparator<T, Ordering::Equal>::compare(left, right)), Equal>);
+concept Has_Equal = requires (T const& left, T const& right) {
+    { Comparator<T, Ordering::Equal>::compare(left, right) } -> same_as<Equal>;
 };
 
 template <typename T>
-static constexpr bool has_ParEqual = requires (T const& left, T const& right) {
-    requires (same_type<decltype(Comparator<T, Ordering::ParEqual>::compare(left, right)), ParEqual>);
+concept Has_ParEqual = requires (T const& left, T const& right) {
+    { Comparator<T, Ordering::ParEqual>::compare(left, right) } -> same_as<ParEqual>;
 };
 
 template <typename T>
@@ -226,7 +226,7 @@ public:
 };
 
 template <typename T>
-requires (is_enum<T> && !is_const<T> && !is_volatile<T> && !has_Order<T>)
+requires (is_enum<T> && !is_const<T> && !is_volatile<T> && !Has_Order<T>)
 class Comparator<T, Ordering::Equal> {
 public:
 
@@ -245,7 +245,7 @@ public:
 #pragma region trait conversion
 
 template <typename T>
-requires (has_Order<T>)
+requires (Has_Order<T>)
 class Comparator<T, Ordering::ParOrder> {
 public:
 
@@ -262,7 +262,7 @@ public:
 };
 
 template <typename T>
-requires (has_Order<T>)
+requires (Has_Order<T>)
 class Comparator<T, Ordering::Equal> {
 public:
 
@@ -279,7 +279,7 @@ public:
 };
 
 template <typename T>
-requires (has_Order<T>)
+requires (Has_Order<T>)
 class Comparator<T, Ordering::ParEqual> {
 public:
 
@@ -296,7 +296,7 @@ public:
 };
 
 template <typename T>
-requires (has_ParOrder<T> && !has_Order<T>)
+requires (Has_ParOrder<T> && !Has_Order<T>)
 class Comparator<T, Ordering::ParEqual> {
 public:
 
@@ -314,7 +314,7 @@ public:
 };
 
 template <typename T>
-requires (has_Equal<T> && !has_ParOrder<T>&& !has_Order<T>)
+requires (Has_Equal<T> && !Has_ParOrder<T>&& !Has_Order<T>)
 class Comparator<T, Ordering::ParEqual> {
 public:
 
@@ -338,13 +338,13 @@ public:
 template <typename T>
 static constexpr Ordering orderingof = []
 {
-    if (has_Order<T>)
+    if (Has_Order<T>)
         return Ordering::Order;
-    else if (has_ParOrder<T>)
+    else if (Has_ParOrder<T>)
         return Ordering::ParOrder;
-    else if (has_Equal<T>)
+    else if (Has_Equal<T>)
         return Ordering::Equal;
-    else if (has_ParEqual<T>)
+    else if (Has_ParEqual<T>)
         return Ordering::ParEqual;
     else
         return static_cast<Ordering>(4);

@@ -124,21 +124,6 @@ public:
 
     Result<void, FormatError> write(char const* chars, ulong write_len)
     {
-        if (chars == nullptr)
-        {
-            std::fprintf(stderr, "[mnc::FormatBuffer] ;; ABORT WARNING ;; character stream is null\n");
-            std::fflush(stderr);
-            std::abort();
-        }
-
-        if (write_len == 0)
-            return { True{} };
-
-        const ulong is_heap = len & 1;
-        const ulong current_len = len >> 1;
-        const ulong current_cap = (is_heap? heap.cap: STACK_BUFFER_SIZE - 1);
-        const ulong new_len = current_len + write_len;
-
         struct range {
         public:
 
@@ -156,42 +141,23 @@ public:
             }
         };
 
-        if (!is_heap)
+        if (write_len == 0)
+            return { True{} };
+
+        if (chars == nullptr)
         {
-            if (range::overlap({ heap.buffer, heap.buffer + size() }, { chars, chars + write_len }))
-            {
-                std::fprintf(stderr, "[mnc::FormatBuffer] ;; ABORT WARNING ;; reading and writing buffer overlap\n");
-                std::fflush(stderr);
-                std::abort();
-            }
-
-            if (new_len <= current_cap)
-            {
-                std::memcpy(stack.buffer + current_len, chars, write_len);
-                stack.buffer[new_len] = '\0';
-                len = new_len << 1;
-            }
-            else
-            {
-                if constexpr (ENABLE_LOGGING) std::printf("[mnc::FormatBuffer] Log: stack - heap transfer\n");
-                
-                ulong new_cap = 3 * new_len / 2 + 1;
-                char* new_buffer = (char*)std::malloc(new_cap + 1);
-
-                if (new_buffer == nullptr)
-                    return { False{}, FormatError::MemoryRequestFailed };
-                
-                std::memcpy(new_buffer, stack.buffer, current_len);
-                std::memcpy(new_buffer + current_len, chars, write_len);
-                new_buffer[new_len] = '\0';
-                heap.buffer = new_buffer;
-                heap.cap = new_cap;
-                len = (new_len << 1) | 1;
-            }
+            std::fprintf(stderr, "[mnc::FormatBuffer] ;; ABORT WARNING ;; character stream is null\n");
+            std::fflush(stderr);
+            std::abort();
         }
-        else
+
+        const ulong current_len = len >> 1;
+        const ulong current_cap = (len & 1? heap.cap: STACK_BUFFER_SIZE - 1);
+        const ulong new_len = (len >> 1) + write_len;
+
+        if (len & 1)
         {
-            if (range::overlap({ stack.buffer, stack.buffer + size() }, { chars, chars + write_len }))
+            if (range::overlap({ heap.buffer, heap.buffer + current_len }, { chars, chars + write_len }))
             {
                 std::fprintf(stderr, "[mnc::FormatBuffer] ;; ABORT WARNING ;; reading and writing buffer overlap\n");
                 std::fflush(stderr);
@@ -206,7 +172,10 @@ public:
             }
             else
             {
-                if constexpr (ENABLE_LOGGING) std::printf("[mnc::FormatBuffer] Log: heap - heap transfer\n");
+                if constexpr (ENABLE_LOGGING) 
+                {
+                    std::printf("[mnc::FormatBuffer] Log: heap - heap transfer\n");
+                }
 
                 ulong new_cap = 3 * new_len / 2 + 1;
                 char* new_buffer = (char*)std::malloc(new_cap + 1);
@@ -223,8 +192,47 @@ public:
                 len = (new_len << 1) | 1;  
             }
         }
+        else
+        {
+            if (range::overlap({ stack.buffer, stack.buffer + current_len }, { chars, chars + write_len }))
+            {
+                std::fprintf(stderr, "[mnc::FormatBuffer] ;; ABORT WARNING ;; reading and writing buffer overlap\n");
+                std::fflush(stderr);
+                std::abort();
+            }
 
-        if constexpr (ENABLE_LOGGING) std::printf("[mnc::FormatBuffer] Log: write successfully. Buffer length = %lld\n", new_len);
+            if (new_len <= current_cap)
+            {
+                std::memcpy(stack.buffer + current_len, chars, write_len);
+                stack.buffer[new_len] = '\0';
+                len = new_len << 1;
+            }
+            else
+            {
+                if constexpr (ENABLE_LOGGING) 
+                {
+                    std::printf("[mnc::FormatBuffer] Log: stack - heap transfer\n");
+                }
+                
+                ulong new_cap = 3 * new_len / 2 + 1;
+                char* new_buffer = (char*)std::malloc(new_cap + 1);
+
+                if (new_buffer == nullptr)
+                    return { False{}, FormatError::MemoryRequestFailed };
+                
+                std::memcpy(new_buffer, stack.buffer, current_len);
+                std::memcpy(new_buffer + current_len, chars, write_len);
+                new_buffer[new_len] = '\0';
+                heap.buffer = new_buffer;
+                heap.cap = new_cap;
+                len = (new_len << 1) | 1;
+            }
+        }
+
+        if constexpr (ENABLE_LOGGING) 
+        {
+            std::printf("[mnc::FormatBuffer] Log: write successfully. Buffer length = %lld\n", new_len);
+        }
         
         return { True{} };
     }
@@ -234,40 +242,11 @@ public:
         if (count == 0)
             return { True{} };
 
-        const ulong is_heap = len & 1;
         const ulong current_len = len >> 1;
-        const ulong current_cap = (is_heap? heap.cap: STACK_BUFFER_SIZE - 1);
-        const ulong new_len = current_len + count;
+        const ulong current_cap = (len & 1? heap.cap: STACK_BUFFER_SIZE - 1);
+        const ulong new_len = (len >> 1) + count;
 
-        if (!is_heap)
-        {
-            if (new_len <= current_cap)
-            {
-                //std::memcpy(stack.buffer + current_len, chars, write_len);
-                std::memset(stack.buffer + current_len, ch, count);
-                stack.buffer[new_len] = '\0';
-                len = new_len << 1;
-            }
-            else
-            {
-                if constexpr (ENABLE_LOGGING) std::printf("[mnc::FormatBuffer] Log: stack - heap transfer\n");
-                
-                ulong new_cap = 3 * new_len / 2 + 1;
-                char* new_buffer = (char*)std::malloc(new_cap + 1);
-
-                if (new_buffer == nullptr)
-                    return { False{}, FormatError::MemoryRequestFailed };
-                
-                std::memcpy(new_buffer, stack.buffer, current_len);
-                //std::memcpy(new_buffer + current_len, chars, write_len);
-                std::memset(new_buffer + current_len, ch, count);
-                new_buffer[new_len] = '\0';
-                heap.buffer = new_buffer;
-                heap.cap = new_cap;
-                len = (new_len << 1) | 1;
-            }
-        }
-        else
+        if (len & 1)
         {
             if (new_len <= current_cap)
             {
@@ -278,7 +257,10 @@ public:
             }
             else
             {
-                if constexpr (ENABLE_LOGGING) std::printf("[mnc::FormatBuffer] Log: heap - heap transfer\n");
+                if constexpr (ENABLE_LOGGING) 
+                {
+                    std::printf("[mnc::FormatBuffer] Log: heap - heap transfer\n");
+                }
 
                 ulong new_cap = 3 * new_len / 2 + 1;
                 char* new_buffer = (char*)std::malloc(new_cap + 1);
@@ -296,8 +278,42 @@ public:
                 len = (new_len << 1) | 1;  
             }
         }
+        else
+        {
+            if (new_len <= current_cap)
+            {
+                //std::memcpy(stack.buffer + current_len, chars, write_len);
+                std::memset(stack.buffer + current_len, ch, count);
+                stack.buffer[new_len] = '\0';
+                len = new_len << 1;
+            }
+            else
+            {
+                if constexpr (ENABLE_LOGGING) 
+                {
+                    std::printf("[mnc::FormatBuffer] Log: stack - heap transfer\n");
+                }
+                
+                ulong new_cap = 3 * new_len / 2 + 1;
+                char* new_buffer = (char*)std::malloc(new_cap + 1);
 
-        if constexpr (ENABLE_LOGGING) std::printf("[mnc::FormatBuffer] Log: write successfully. Buffer length = %lld\n", new_len);
+                if (new_buffer == nullptr)
+                    return { False{}, FormatError::MemoryRequestFailed };
+                
+                std::memcpy(new_buffer, stack.buffer, current_len);
+                //std::memcpy(new_buffer + current_len, chars, write_len);
+                std::memset(new_buffer + current_len, ch, count);
+                new_buffer[new_len] = '\0';
+                heap.buffer = new_buffer;
+                heap.cap = new_cap;
+                len = (new_len << 1) | 1;
+            }
+        }
+
+        if constexpr (ENABLE_LOGGING) 
+        {
+            std::printf("[mnc::FormatBuffer] Log: write successfully. Buffer length = %lld\n", new_len);
+        }
         
         return { True{} };
     }
@@ -376,8 +392,7 @@ template <typename T>
 requires (
     (!is_const<T> && !is_volatile<T> && 
     is_pointer<T> && same_type<remove_const<remove_pointer<T>>, char>) ||
-    (is_array<T> && same_type<remove_const<remove_array<T>>, char>) ||
-    same_type<T, CharArray>
+    (is_array<T> && same_type<remove_const<remove_array<T>>, char>)
 )
 class Formatter<T> {
 private:
@@ -601,7 +616,8 @@ public:
 template <typename T>
 requires (
     same_type<T, String> || 
-    same_type<T, Slice>
+    same_type<T, Slice>  ||
+    same_type<T, CharArray>
 )
 class Formatter<T> {
 private:
@@ -2166,289 +2182,6 @@ private:
     requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(index_sequence<_Index...>, FormatIR self_text_fmt, Buffer& buffer, Ts const&... values) const
     {
-        #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
-
-        struct helper
-        {
-            static Result<void, FormatError> write_chunk(Buffer& buffer, char const* chars, ulong write_len)  
-            {
-                char const* const end = chars + write_len;
-                char const* p = chars;
-
-                while (p < end)
-                {
-                    if (*p == '{')      // => must be even {{..
-                    {
-                        char const* checkpoint = p;
-                        while (p < end && *p == '{') { p++; }
-                        GUARD(buffer.write('{', (p - checkpoint) / 2));  // write duplicate chars
-                    }
-                    else if (*p == '}') // => must be even }}..
-                    {
-                        char const* checkpoint = p;
-                        while (p < end && *p == '}') { p++; }
-                        GUARD(buffer.write('}', (p - checkpoint) / 2));  // write duplicate chars
-                    }
-                    else
-                    {
-                        char const* checkpoint = p;
-                        while (p < end && *p != '{' && *p != '}') { p++; }
-                        GUARD(buffer.write(checkpoint, p - checkpoint));  // write chars
-                    }
-
-                    /*else if (*p == '\n')
-                    {
-                        char const* checkpoint = p;
-                        while (p < end && *p == '\n') { p++; }
-
-                        if (styled && added_prefix)
-                        {
-                            GUARD(temp.write("\e[0m"));
-                            added_width += 4;
-                            added_prefix = false;
-                        }
-
-                        GUARD(buffer.write(prefix, prefixlen));
-                        GUARD(buffer.write('\n', p - checkpoint));  // write duplicate chars
-                        GUARD(buffer.write("\e[0m"));
-                        added_width.map(
-                            [&](ulong& added_width) { added_width += prefixlen + 4; }
-                        );
-
-                    }*/
-                }
-
-                return { True{} };
-            }
-
-            static void format_into(char* buffer, byte value)
-            {
-                buffer[2] = '0' + (value % 10);
-                buffer[1] = '0' + (value / 10) % 10;
-                buffer[0] = '0' + (value / 100) % 10;
-            }
-        };
-
-        char prefix[64];
-        byte prefixlen = 0;
-        bool styled = false;
-
-        // precompute text_fmt prefix
-        {
-            if (self_text_fmt.text_color == True{})
-            {
-                Color8bit color_vec = self_text_fmt.text_color.unwrap();
-                std::memcpy(prefix + prefixlen, "\e[38;2;000;000;000m", 19);
-                helper::format_into(prefix + prefixlen + 7, color_vec.red);
-                helper::format_into(prefix + prefixlen + 11, color_vec.green);
-                helper::format_into(prefix + prefixlen + 15, color_vec.blue);
-                prefixlen += 19;
-                styled = true;
-            }
-
-            if (self_text_fmt.background_color == True{})
-            {
-                Color8bit color_vec = self_text_fmt.background_color.unwrap();
-                std::memcpy(prefix + prefixlen, "\e[48;2;000;000;000m", 19);
-                helper::format_into(prefix + prefixlen + 7, color_vec.red);
-                helper::format_into(prefix + prefixlen + 11, color_vec.green);
-                helper::format_into(prefix + prefixlen + 15, color_vec.blue);
-                prefixlen += 19;
-                styled = true;
-            }
-
-            if (self_text_fmt.style != Style::Regular)
-            {
-                uint flags = +self_text_fmt.style;
-                std::memcpy(prefix + prefixlen, "\e[_;_;_;_;_m", 12);
-                prefixlen += 2;
-                if (flags & +Style::Bold)      { prefix[prefixlen] = '1'; prefixlen += 2; }
-                if (flags & +Style::Dim)       { prefix[prefixlen] = '2'; prefixlen += 2; }
-                if (flags & +Style::Italic)    { prefix[prefixlen] = '3'; prefixlen += 2; }
-                if (flags & +Style::Underline) { prefix[prefixlen] = '4'; prefixlen += 2; }
-                if (flags & +Style::Strike)    { prefix[prefixlen] = '9'; prefixlen += 2; }
-                prefix[prefixlen - 1] = 'm';
-                styled = true;
-            }
-        }
-
-        // write to buffer
-        /*if (self_text_fmt.align.width > 0)
-        {
-            FormatBuffer temp;
-            ulong added_width = 0;
-            Result<void, FormatError> res = { True{} };
-            bool added_prefix = false;
-
-            bool add_head_prefix = false;
-            bool first_chunk = true;
-
-            // unroll...
-            (
-                (res = res.and_then
-                (
-                    [&]() -> Result<void, FormatError> 
-                    {
-                        if (styled && !added_prefix && textchunk[_Index].len > 0)
-                        {
-                            if (first_chunk)
-                            {
-                                add_head_prefix = true;
-                                added_prefix = true;
-                            }
-                            else
-                            {
-                                GUARD(temp.write(prefix, prefixlen));
-                                added_width += prefixlen;
-                                added_prefix = true;
-                            }
-                        }
-
-                        if (textchunk[_Index].len > 0)
-                        {
-                            GUARD(helper::write_chunk(
-                                temp, 
-                                Format + textchunk[_Index].start, 
-                                textchunk[_Index].len
-                            ));
-                            first_chunk = false;
-                        }
-
-                        if (text_fmt[_Index] == True{})
-                        {
-                            if (styled && added_prefix)
-                            {
-                                GUARD(temp.write("\e[0m"));
-                                added_width += 4;
-                                added_prefix = false;
-                            }
-
-                            added_width += text_fmt[_Index].unwrap().added_width();
-                            return static_cast<Cell<_Index> const&>(type_fmt).data.format(
-                                temp, 
-                                values,
-                                text_fmt[_Index].unwrap()
-                            );
-                            
-                            first_chunk = false;
-                        }
-                        else  // => {self}
-                        {
-                            if (styled && !added_prefix)
-                            {
-                                if (first_chunk)
-                                {
-                                    add_head_prefix = true;
-                                    added_prefix = true;
-                                }
-                                else
-                                {
-                                    GUARD(temp.write(prefix, prefixlen));
-                                    added_width += prefixlen;
-                                    added_prefix = true;
-                                }
-                            }
-
-                            char const* checkpoint = temp.data();
-                            GUARD(static_cast<Cell<_Index> const&>(type_fmt).data.format(
-                                temp, 
-                                values,
-                                FormatIR {}
-                            ));
-                            ulong write_len = temp.data() - checkpoint;
-
-                            if (write_len > 0)
-                            {
-                                first_chunk = false;
-                            }
-                            
-                            return { True{} };
-                        }
-                    }
-                )), ...
-            );
-
-            if (res == False{}) 
-                return res;
-
-            // add alignment
-            ulong visible_length = temp.size() - added_width;
-            if (self_text_fmt.align.width > visible_length)
-            {
-                ulong fill_len = self_text_fmt.align.width - visible_length;
-                ulong tail_padding_len = 0;
-                ulong head_padding_len = 0;
-
-                switch (self_text_fmt.align.mode)
-                {
-                    case Align::Mode::Left:  // head-prefix -> temp -> tail-prefix -> tail -> tail-padding -> tail-suffix
-                    {
-                        head_padding_len = 0;
-                        tail_padding_len = fill_len;
-                        break;
-                    }
-                    case Align::Mode::Right:  // head-prefix -> head-padding -> temp -> tail-prefix -> tail -> tail-suffix
-                    {
-                        head_padding_len = fill_len;
-                        tail_padding_len = 0;
-                        break;
-                    }
-                    case Align::Mode::Center: // head-prefix -> head-padding -> temp -> tail-prefix -> tail -> tail-pading -> tail-suffix
-                    {
-                        head_padding_len = fill_len / 2;
-                        tail_padding_len = fill_len - fill_len / 2;
-                        break;
-                    }
-                }
-
-                // head-prefix
-                if (add_head_prefix)
-                {
-                    GUARD(buffer.write(prefix, prefixlen));
-                }
-
-                // head-padding
-                GUARD(buffer.write(self_text_fmt.align.fill, head_padding_len));
-
-                // temp
-                GUARD(buffer.write(temp.data(), temp.size()));
-
-                // tail-prefix
-                if (styled && !added_prefix && (textchunk[sizeof...(_Index)].len + tail_padding_len) > 0)
-                {
-                    GUARD(buffer.write(prefix, prefixlen));
-                    added_width += prefixlen;
-                    added_prefix = true;
-                }
-
-                // tail
-                GUARD(helper::write_chunk(
-                    buffer, 
-                    Format + textchunk[sizeof...(_Index)].start, 
-                    textchunk[sizeof...(_Index)].len
-                ));
-
-                // tail-padding
-                GUARD(buffer.write(self_text_fmt.align.fill, tail_padding_len));
-
-                // tail-suffix
-                if (styled && added_prefix)
-                {
-                    GUARD(buffer.write("\e[0m"));
-                    added_width += 4;
-                    added_prefix = false;
-                }
-            }
-            else
-            {
-                GUARD(buffer.write(temp.data(), temp.size()));
-            }
-        }*/
-        if (self_text_fmt.align.width > 0)
-        {
-            FormatBuffer temp;
-            struct slice { char const* start; ulong len; };
-
             /*  [basic idea]
             *
             *   (sizeof...(Ts) + 1) text chunks
@@ -2492,87 +2225,6 @@ private:
             *
             *   
             */
-            
-        }
-        else
-        {
-            Result<void, FormatError> res = { True{} };
-            bool added_prefix = false;
-
-            // unroll...
-            (
-                (res = res.and_then
-                (
-                    [&]() -> Result<void, FormatError> 
-                    {
-                        if (styled && !added_prefix && textchunk[_Index].len > 0)
-                        {
-                            GUARD(buffer.write(prefix, prefixlen));
-                            added_prefix = true;
-                        }
-
-                        GUARD(helper::write_chunk(
-                            buffer, 
-                            Format + textchunk[_Index].start, 
-                            textchunk[_Index].len
-                        ));
-
-                        if (text_fmt[_Index] == True{})
-                        {
-                            if (styled && added_prefix)
-                            {
-                                GUARD(buffer.write("\e[0m"));
-                                added_prefix = false;
-                            }
-
-                            return static_cast<Cell<_Index> const&>(type_fmt).data.format(
-                                buffer, 
-                                values,
-                                text_fmt[_Index].unwrap()
-                            );
-                        }
-                        else  // => {self}
-                        {
-                            if (styled && !added_prefix)
-                            {
-                                GUARD(buffer.write(prefix, prefixlen));
-                                added_prefix = true;
-                            }
-
-                            return static_cast<Cell<_Index> const&>(type_fmt).data.format(
-                                buffer, 
-                                values,
-                                FormatIR {}
-                            );
-                        }
-                    }
-                )), ...
-            );
-
-            if (res == False{}) 
-                return res;
-
-            if (styled && !added_prefix && textchunk[sizeof...(_Index)].len > 0)
-            {
-                GUARD(buffer.write(prefix, prefixlen));
-                added_prefix = true;
-            }
-
-            GUARD(helper::write_chunk(
-                buffer, 
-                Format + textchunk[sizeof...(_Index)].start, 
-                textchunk[sizeof...(_Index)].len
-            ));
-
-            if (styled && added_prefix)
-            {
-                GUARD(buffer.write("\e[0m"));
-                added_prefix = false;
-            }
-        }
-
-        return { True{} };
-        #undef GUARD
     }
 
 public:
@@ -2627,37 +2279,6 @@ constexpr String format(FormatString<Ts...> Format, Ts const&... values)
     Format.format(buffer, values...).unwrap();
     return buffer;
 }
-
-
-
-
-/*
-
-    template <typename... Ts>
-    requires ((Has_Formatter<Ts> || Has_Default_Formatter<Ts>) && ...)
-    Result<void, FormatError> print(FormatIR self, FormatString<Ts...> Format, Ts const&... values)
-    {
-        FormatBuffer buffer;
-        auto res = Format.format(self, buffer, values...);
-        if (res == False{}) return res;
-        std::fwrite(buffer.data(), 1, buffer.size(), stdout);
-        return { True{} };
-    }
-
-    template <typename... Ts>
-    requires ((Has_Formatter<Ts> || Has_Default_Formatter<Ts>) && ...)
-    Result<void, FormatError> println(FormatIR self, FormatString<Ts...> Format, Ts const&... values)
-    {
-        FormatBuffer buffer;
-        auto res = Format.format(self, buffer, values...);
-        if (res == False{}) return res;
-        res = buffer.write("\n");
-        if (res == False{}) return res;
-        std::fwrite(buffer.data(), 1, buffer.size(), stdout);
-        return { True{} };
-    }
-
-*/
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////

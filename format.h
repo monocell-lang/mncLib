@@ -21,7 +21,7 @@ _MNC_BEGIN
 #pragma region FormatBuffer
 
 template <typename T>
-concept Is_Raw_Buffer = requires (T& buffer, char const* chars, ulong size, char ch, CharArray arr) {
+concept Is_Raw_Buffer = requires (T& buffer, char const* chars, ulong size, char ch, Slice arr) {
     { buffer.write(chars, size) } -> same_as<Result<void, FormatError>>;
     { buffer.write(ch, size) } -> same_as<Result<void, FormatError>>;
     { buffer.write(arr) } -> same_as<Result<void, FormatError>>;
@@ -30,7 +30,7 @@ concept Is_Raw_Buffer = requires (T& buffer, char const* chars, ulong size, char
 };
 
 template <typename T>
-concept Is_Buffer = requires (T& buffer, char const* chars, ulong size, char ch, CharArray arr, FormatIR IR) {
+concept Is_Buffer = requires (T& buffer, char const* chars, ulong size, char ch, Slice arr, FormatIR IR) {
     { buffer.write(chars, size, IR) } -> same_as<Result<void, FormatError>>;
     { buffer.write(ch, size, IR) } -> same_as<Result<void, FormatError>>;
     { buffer.write(arr, IR) } -> same_as<Result<void, FormatError>>;
@@ -328,12 +328,12 @@ public:
         return IR.write_into(*this, ch, count);
     }
 
-    Result<void, FormatError> write(CharArray arr)
+    Result<void, FormatError> write(Slice arr)
     {
         return write(arr.data(), arr.size());
     }
 
-    Result<void, FormatError> write(CharArray arr, FormatIR IR)
+    Result<void, FormatError> write(Slice arr, FormatIR IR)
     {
         return IR.write_into(*this, arr.data(), arr.size());
     }
@@ -388,14 +388,14 @@ concept Has_Default_Formatter = requires (const Formatter<T> formatter, FormatBu
 
 
 // Syntax: (empty) | .normal | .debug
-template <typename T>
-requires (
-    (!is_const<T> && !is_volatile<T> && 
-    is_pointer<T> && same_type<remove_const<remove_pointer<T>>, char>) ||
-    (is_array<T> && same_type<remove_const<remove_array<T>>, char>)
-)
-class Formatter<T> {
+template <>
+class Formatter<Slice> {
 private:
+
+    struct __throw
+    {
+        static void FORMATTER_SLICE_Invalid_Format_Parameter_Syntax() {}
+    };
 
     struct helper
     {
@@ -423,14 +423,6 @@ private:
             }
             return true;
         }
-    };
-
-
-private:
-
-    struct __throw
-    {
-        static void FORMATTER_CSTR_Invalid_Format_Parameter_Syntax() {}
     };
 
     enum class Mode: byte {
@@ -472,7 +464,7 @@ public:
                     break;
                 }
 
-                __throw::FORMATTER_CSTR_Invalid_Format_Parameter_Syntax();
+                __throw::FORMATTER_SLICE_Invalid_Format_Parameter_Syntax();
             }
         }
 
@@ -491,18 +483,18 @@ public:
             }
 
             if (slen == 0) // just .
-                __throw::FORMATTER_CSTR_Invalid_Format_Parameter_Syntax();
+                __throw::FORMATTER_SLICE_Invalid_Format_Parameter_Syntax();
 
             while (start < params + len)
             {
                 if (*start != ' ')  // has trailling
-                    __throw::FORMATTER_CSTR_Invalid_Format_Parameter_Syntax();
+                    __throw::FORMATTER_SLICE_Invalid_Format_Parameter_Syntax();
                 start++;
             };
 
             if (helper::same_str(sstart, slen, "normal"))     mode = Mode::Normal;
             else if (helper::same_str(sstart, slen, "debug")) mode = Mode::Debug;
-            else __throw::FORMATTER_CSTR_Invalid_Format_Parameter_Syntax();
+            else __throw::FORMATTER_SLICE_Invalid_Format_Parameter_Syntax();
         }
     }
 
@@ -512,7 +504,7 @@ public:
     // debug ignores IR
     template <typename Buffer>
     requires (Is_Buffer<Buffer>)
-    constexpr Result<void, FormatError> format(Buffer& buffer, char const* value, ulong len, FormatIR IR = FormatIR {}) const
+    constexpr Result<void, FormatError> format(Buffer& buffer, Slice const& value, FormatIR IR = FormatIR {}) const
     {
         #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
 
@@ -520,13 +512,13 @@ public:
         {
             case Mode::Normal:
             {
-                return buffer.write(value, len, IR);
+                return buffer.write(value.data(), value.size(), IR);
             }
 
             case Mode::Debug:
             {                
                 GUARD(buffer.write("\""));
-                for (ulong i = 0; i < len;)
+                for (ulong i = 0; i < value.size();)
                 {
                     FormatIR profile = { .text_color = { True{}, +Color::Cream } };
 
@@ -553,7 +545,7 @@ public:
                         char const* start = &value[i];
                         ulong slen = 0;
 
-                        while (start + slen < value + len)
+                        while (start + slen < value.data() + value.size())
                         {
                             char ch = start[slen];
                             if ((ch < 32 || 126 < ch) || ch == '\'' || ch == '\"' || ch == '\\')
@@ -595,34 +587,19 @@ public:
 
         #undef GUARD
     }
-
-    // debug ignores IR
-    template <typename Buffer>
-    requires (Is_Buffer<Buffer>)
-    constexpr Result<void, FormatError> format(Buffer& buffer, char const* value, FormatIR IR = FormatIR {}) const
-    {
-        return format(buffer, value, std::strlen(value), IR);
-    }
-
-    // debug ignores IR
-    template <typename Buffer>
-    requires (Is_Buffer<Buffer>)
-    constexpr Result<void, FormatError> format(Buffer& buffer, CharArray value, FormatIR IR = FormatIR {}) const
-    {
-        return format(buffer, value, value.size(), IR);
-    }
 };
 
+// Syntax: (empty) | .normal | .debug
 template <typename T>
 requires (
-    same_type<T, String> || 
-    same_type<T, Slice>  ||
-    same_type<T, CharArray>
+    is_array_of<T, char>       || 
+    is_array_of<T, char const> ||
+    same_type<T, String>
 )
 class Formatter<T> {
 private:
 
-    Formatter<char const*> base;
+    Formatter<Slice> base;
 
 public:
 
@@ -635,7 +612,7 @@ public:
     requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, T const& value, FormatIR IR = FormatIR{}) const
     {
-        return base.format(buffer, value.data(), value.size(), IR);
+        return base.format(buffer, value, IR);
     }
 };
 
@@ -1219,11 +1196,6 @@ public:
 };
 
 template <typename T>
-requires (
-    !is_const<T> && 
-    !is_volatile<T> && 
-    !same_type<remove_const<remove_pointer<T>>, char>
-)
 class Formatter<T*> {
 public:
 
@@ -2182,6 +2154,289 @@ private:
     requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(index_sequence<_Index...>, FormatIR self_text_fmt, Buffer& buffer, Ts const&... values) const
     {
+        #define GUARD(result) do { auto res = result; if (res == False{}) return res; } while (false)
+
+        struct helper
+        {
+            static Result<void, FormatError> write_chunk(Buffer& buffer, char const* chars, ulong write_len)  
+            {
+                char const* const end = chars + write_len;
+                char const* p = chars;
+
+                while (p < end)
+                {
+                    if (*p == '{')      // => must be even {{..
+                    {
+                        char const* checkpoint = p;
+                        while (p < end && *p == '{') { p++; }
+                        GUARD(buffer.write('{', (p - checkpoint) / 2));  // write duplicate chars
+                    }
+                    else if (*p == '}') // => must be even }}..
+                    {
+                        char const* checkpoint = p;
+                        while (p < end && *p == '}') { p++; }
+                        GUARD(buffer.write('}', (p - checkpoint) / 2));  // write duplicate chars
+                    }
+                    else
+                    {
+                        char const* checkpoint = p;
+                        while (p < end && *p != '{' && *p != '}') { p++; }
+                        GUARD(buffer.write(checkpoint, p - checkpoint));  // write chars
+                    }
+
+                    /*else if (*p == '\n')
+                    {
+                        char const* checkpoint = p;
+                        while (p < end && *p == '\n') { p++; }
+
+                        if (styled && added_prefix)
+                        {
+                            GUARD(temp.write("\e[0m"));
+                            added_width += 4;
+                            added_prefix = false;
+                        }
+
+                        GUARD(buffer.write(prefix, prefixlen));
+                        GUARD(buffer.write('\n', p - checkpoint));  // write duplicate chars
+                        GUARD(buffer.write("\e[0m"));
+                        added_width.map(
+                            [&](ulong& added_width) { added_width += prefixlen + 4; }
+                        );
+
+                    }*/
+                }
+
+                return { True{} };
+            }
+
+            static void format_into(char* buffer, byte value)
+            {
+                buffer[2] = '0' + (value % 10);
+                buffer[1] = '0' + (value / 10) % 10;
+                buffer[0] = '0' + (value / 100) % 10;
+            }
+        };
+
+        char prefix[64];
+        byte prefixlen = 0;
+        bool styled = false;
+
+        // precompute text_fmt prefix
+        {
+            if (self_text_fmt.text_color == True{})
+            {
+                Color8bit color_vec = self_text_fmt.text_color.unwrap();
+                std::memcpy(prefix + prefixlen, "\e[38;2;000;000;000m", 19);
+                helper::format_into(prefix + prefixlen + 7, color_vec.red);
+                helper::format_into(prefix + prefixlen + 11, color_vec.green);
+                helper::format_into(prefix + prefixlen + 15, color_vec.blue);
+                prefixlen += 19;
+                styled = true;
+            }
+
+            if (self_text_fmt.background_color == True{})
+            {
+                Color8bit color_vec = self_text_fmt.background_color.unwrap();
+                std::memcpy(prefix + prefixlen, "\e[48;2;000;000;000m", 19);
+                helper::format_into(prefix + prefixlen + 7, color_vec.red);
+                helper::format_into(prefix + prefixlen + 11, color_vec.green);
+                helper::format_into(prefix + prefixlen + 15, color_vec.blue);
+                prefixlen += 19;
+                styled = true;
+            }
+
+            if (self_text_fmt.style != Style::Regular)
+            {
+                uint flags = +self_text_fmt.style;
+                std::memcpy(prefix + prefixlen, "\e[_;_;_;_;_m", 12);
+                prefixlen += 2;
+                if (flags & +Style::Bold)      { prefix[prefixlen] = '1'; prefixlen += 2; }
+                if (flags & +Style::Dim)       { prefix[prefixlen] = '2'; prefixlen += 2; }
+                if (flags & +Style::Italic)    { prefix[prefixlen] = '3'; prefixlen += 2; }
+                if (flags & +Style::Underline) { prefix[prefixlen] = '4'; prefixlen += 2; }
+                if (flags & +Style::Strike)    { prefix[prefixlen] = '9'; prefixlen += 2; }
+                prefix[prefixlen - 1] = 'm';
+                styled = true;
+            }
+        }
+
+        // write to buffer
+        /*if (self_text_fmt.align.width > 0)
+        {
+            FormatBuffer temp;
+            ulong added_width = 0;
+            Result<void, FormatError> res = { True{} };
+            bool added_prefix = false;
+
+            bool add_head_prefix = false;
+            bool first_chunk = true;
+
+            // unroll...
+            (
+                (res = res.and_then
+                (
+                    [&]() -> Result<void, FormatError> 
+                    {
+                        if (styled && !added_prefix && textchunk[_Index].len > 0)
+                        {
+                            if (first_chunk)
+                            {
+                                add_head_prefix = true;
+                                added_prefix = true;
+                            }
+                            else
+                            {
+                                GUARD(temp.write(prefix, prefixlen));
+                                added_width += prefixlen;
+                                added_prefix = true;
+                            }
+                        }
+
+                        if (textchunk[_Index].len > 0)
+                        {
+                            GUARD(helper::write_chunk(
+                                temp, 
+                                Format + textchunk[_Index].start, 
+                                textchunk[_Index].len
+                            ));
+                            first_chunk = false;
+                        }
+
+                        if (text_fmt[_Index] == True{})
+                        {
+                            if (styled && added_prefix)
+                            {
+                                GUARD(temp.write("\e[0m"));
+                                added_width += 4;
+                                added_prefix = false;
+                            }
+
+                            added_width += text_fmt[_Index].unwrap().added_width();
+                            return static_cast<Cell<_Index> const&>(type_fmt).data.format(
+                                temp, 
+                                values,
+                                text_fmt[_Index].unwrap()
+                            );
+                            
+                            first_chunk = false;
+                        }
+                        else  // => {self}
+                        {
+                            if (styled && !added_prefix)
+                            {
+                                if (first_chunk)
+                                {
+                                    add_head_prefix = true;
+                                    added_prefix = true;
+                                }
+                                else
+                                {
+                                    GUARD(temp.write(prefix, prefixlen));
+                                    added_width += prefixlen;
+                                    added_prefix = true;
+                                }
+                            }
+
+                            char const* checkpoint = temp.data();
+                            GUARD(static_cast<Cell<_Index> const&>(type_fmt).data.format(
+                                temp, 
+                                values,
+                                FormatIR {}
+                            ));
+                            ulong write_len = temp.data() - checkpoint;
+
+                            if (write_len > 0)
+                            {
+                                first_chunk = false;
+                            }
+                            
+                            return { True{} };
+                        }
+                    }
+                )), ...
+            );
+
+            if (res == False{}) 
+                return res;
+
+            // add alignment
+            ulong visible_length = temp.size() - added_width;
+            if (self_text_fmt.align.width > visible_length)
+            {
+                ulong fill_len = self_text_fmt.align.width - visible_length;
+                ulong tail_padding_len = 0;
+                ulong head_padding_len = 0;
+
+                switch (self_text_fmt.align.mode)
+                {
+                    case Align::Mode::Left:  // head-prefix -> temp -> tail-prefix -> tail -> tail-padding -> tail-suffix
+                    {
+                        head_padding_len = 0;
+                        tail_padding_len = fill_len;
+                        break;
+                    }
+                    case Align::Mode::Right:  // head-prefix -> head-padding -> temp -> tail-prefix -> tail -> tail-suffix
+                    {
+                        head_padding_len = fill_len;
+                        tail_padding_len = 0;
+                        break;
+                    }
+                    case Align::Mode::Center: // head-prefix -> head-padding -> temp -> tail-prefix -> tail -> tail-pading -> tail-suffix
+                    {
+                        head_padding_len = fill_len / 2;
+                        tail_padding_len = fill_len - fill_len / 2;
+                        break;
+                    }
+                }
+
+                // head-prefix
+                if (add_head_prefix)
+                {
+                    GUARD(buffer.write(prefix, prefixlen));
+                }
+
+                // head-padding
+                GUARD(buffer.write(self_text_fmt.align.fill, head_padding_len));
+
+                // temp
+                GUARD(buffer.write(temp.data(), temp.size()));
+
+                // tail-prefix
+                if (styled && !added_prefix && (textchunk[sizeof...(_Index)].len + tail_padding_len) > 0)
+                {
+                    GUARD(buffer.write(prefix, prefixlen));
+                    added_width += prefixlen;
+                    added_prefix = true;
+                }
+
+                // tail
+                GUARD(helper::write_chunk(
+                    buffer, 
+                    Format + textchunk[sizeof...(_Index)].start, 
+                    textchunk[sizeof...(_Index)].len
+                ));
+
+                // tail-padding
+                GUARD(buffer.write(self_text_fmt.align.fill, tail_padding_len));
+
+                // tail-suffix
+                if (styled && added_prefix)
+                {
+                    GUARD(buffer.write("\e[0m"));
+                    added_width += 4;
+                    added_prefix = false;
+                }
+            }
+            else
+            {
+                GUARD(buffer.write(temp.data(), temp.size()));
+            }
+        }*/
+        if (self_text_fmt.align.width > 0)
+        {
+            FormatBuffer temp;
+            struct slice { char const* start; ulong len; };
+
             /*  [basic idea]
             *
             *   (sizeof...(Ts) + 1) text chunks
@@ -2225,6 +2480,87 @@ private:
             *
             *   
             */
+            
+        }
+        else
+        {
+            Result<void, FormatError> res = { True{} };
+            bool added_prefix = false;
+
+            // unroll...
+            (
+                (res = res.and_then
+                (
+                    [&]() -> Result<void, FormatError> 
+                    {
+                        if (styled && !added_prefix && textchunk[_Index].len > 0)
+                        {
+                            GUARD(buffer.write(prefix, prefixlen));
+                            added_prefix = true;
+                        }
+
+                        GUARD(helper::write_chunk(
+                            buffer, 
+                            Format + textchunk[_Index].start, 
+                            textchunk[_Index].len
+                        ));
+
+                        if (text_fmt[_Index] == True{})
+                        {
+                            if (styled && added_prefix)
+                            {
+                                GUARD(buffer.write("\e[0m"));
+                                added_prefix = false;
+                            }
+
+                            return static_cast<Cell<_Index> const&>(type_fmt).data.format(
+                                buffer, 
+                                values,
+                                text_fmt[_Index].unwrap()
+                            );
+                        }
+                        else  // => {self}
+                        {
+                            if (styled && !added_prefix)
+                            {
+                                GUARD(buffer.write(prefix, prefixlen));
+                                added_prefix = true;
+                            }
+
+                            return static_cast<Cell<_Index> const&>(type_fmt).data.format(
+                                buffer, 
+                                values,
+                                FormatIR {}
+                            );
+                        }
+                    }
+                )), ...
+            );
+
+            if (res == False{}) 
+                return res;
+
+            if (styled && !added_prefix && textchunk[sizeof...(_Index)].len > 0)
+            {
+                GUARD(buffer.write(prefix, prefixlen));
+                added_prefix = true;
+            }
+
+            GUARD(helper::write_chunk(
+                buffer, 
+                Format + textchunk[sizeof...(_Index)].start, 
+                textchunk[sizeof...(_Index)].len
+            ));
+
+            if (styled && added_prefix)
+            {
+                GUARD(buffer.write("\e[0m"));
+                added_prefix = false;
+            }
+        }
+
+        return { True{} };
+        #undef GUARD
     }
 
 public:
@@ -2279,6 +2615,34 @@ constexpr String format(FormatString<Ts...> Format, Ts const&... values)
     Format.format(buffer, values...).unwrap();
     return buffer;
 }
+
+/*
+
+    template <typename... Ts>
+    requires ((Has_Formatter<Ts> || Has_Default_Formatter<Ts>) && ...)
+    Result<void, FormatError> print(FormatIR self, FormatString<Ts...> Format, Ts const&... values)
+    {
+        FormatBuffer buffer;
+        auto res = Format.format(self, buffer, values...);
+        if (res == False{}) return res;
+        std::fwrite(buffer.data(), 1, buffer.size(), stdout);
+        return { True{} };
+    }
+
+    template <typename... Ts>
+    requires ((Has_Formatter<Ts> || Has_Default_Formatter<Ts>) && ...)
+    Result<void, FormatError> println(FormatIR self, FormatString<Ts...> Format, Ts const&... values)
+    {
+        FormatBuffer buffer;
+        auto res = Format.format(self, buffer, values...);
+        if (res == False{}) return res;
+        res = buffer.write("\n");
+        if (res == False{}) return res;
+        std::fwrite(buffer.data(), 1, buffer.size(), stdout);
+        return { True{} };
+    }
+
+*/
 
 #pragma endregion
 /////////////////////////////////////////////////////////////////////////////

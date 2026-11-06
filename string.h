@@ -9,7 +9,7 @@
 
 #define _MNC_BEGIN namespace mnc {
 #define _MNC_END }
-#define _GLOBAL_EXPORT(Item) _MNC_END using Item; _MNC_BEGIN
+#define _GLOBAL_EXPORT(Item) _MNC_END using mnc::Item; _MNC_BEGIN
 #define _MNC ::mnc::
 #define _LVALUE (*this).
 #define _RVALUE mov(*this).
@@ -23,64 +23,12 @@ _MNC_BEGIN
 
 class String;
 class Slice;
+
 constexpr Slice operator""_slice(char const*, ulong);
 constexpr String operator""_str(char const*, ulong);
 
-_GLOBAL_EXPORT(mnc::operator""_str)
-_GLOBAL_EXPORT(mnc::operator""_slice)
-
-//////////////////////////////////////////////////////////////////////
-//////////////////////////// class: CharArray ////////////////////////
-//////////////////////////////////////////////////////////////////////
-#pragma region CharArray
-
-class CharArray {
-private:
-
-    char const* _data;
-    ulong len;
-
-public:
-
-    template <ulong N>
-    constexpr CharArray(char const(&data)[N]): _data(data), len(N - 1) {}
-    constexpr CharArray(CharArray const&) = default;
-    constexpr CharArray(CharArray&&) = default;
-    constexpr CharArray& operator=(CharArray const&) = default;
-    constexpr CharArray& operator=(CharArray&&) = default;
-    constexpr CharArray() = delete;
-    constexpr ~CharArray() = default;
-
-    constexpr char const& operator[](ulong index) const&
-    {
-        return _data[index];
-    }
-
-    constexpr char const&& operator[](ulong index) const&&
-    {
-        return static_cast<char const&&>(_data[index]);
-    }
-
-    constexpr char const* begin() const
-    {
-        return _data;
-    }
-
-    constexpr char const* end() const
-    {
-        return _data + len;
-    }
-
-    constexpr char const* data() const
-    {
-        return _data;
-    }
-
-    constexpr ulong size() const
-    {
-        return len;
-    }
-};
+_GLOBAL_EXPORT(operator""_str)
+_GLOBAL_EXPORT(operator""_slice)
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////////// class: Slice ////////////////////////////
@@ -125,6 +73,9 @@ private:
 
 public:
 
+    template <ulong N>
+    constexpr Slice(char const (&data)[N]): _data(data), len(N - 1) {}
+
     friend constexpr Slice operator""_slice(char const* _, ulong __) 
     {
         return Slice { _, __ };
@@ -139,6 +90,8 @@ public:
 
     template <ulong N>
     static constexpr Slice from(char const (&data)[N]) { return Slice { data, N - 1 }; }
+    
+    static constexpr Slice from_cstr(char const* data, ulong len) { return Slice { data, len }; }
 
 private:
 
@@ -1495,12 +1448,12 @@ public:
         return IR.write_into(*this, ch, count);
     }
 
-    constexpr Result<void, FormatError> write(CharArray arr)
+    constexpr Result<void, FormatError> write(Slice arr)
     {
         return write(arr.data(), arr.size());
     }
 
-    constexpr Result<void, FormatError> write(CharArray arr, FormatIR IR)
+    constexpr Result<void, FormatError> write(Slice arr, FormatIR IR)
     {
         return IR.write_into(*this, arr.data(), arr.size());
     }

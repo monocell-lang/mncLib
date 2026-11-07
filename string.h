@@ -9,7 +9,6 @@
 
 #define _MNC_BEGIN namespace mnc {
 #define _MNC_END }
-#define _GLOBAL_EXPORT(Item) _MNC_END using mnc::Item; _MNC_BEGIN
 #define _MNC ::mnc::
 #define _LVALUE (*this).
 #define _RVALUE mov(*this).
@@ -27,8 +26,10 @@ class Slice;
 constexpr Slice operator""_slice(char const*, ulong);
 constexpr String operator""_str(char const*, ulong);
 
-_GLOBAL_EXPORT(operator""_str)
-_GLOBAL_EXPORT(operator""_slice)
+_MNC_END 
+using mnc::operator""_str;
+using mnc::operator""_slice;
+_MNC_BEGIN
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////////// class: Slice ////////////////////////////
@@ -40,7 +41,6 @@ private:
 
     friend class String;
     friend class Comparator<Slice, Ordering::Order>;
-    friend class Comparator<String, Ordering::Order>;
 
     struct __throw 
     {
@@ -231,78 +231,9 @@ public:
     }
 
     //////////////////////////////////////////////////////////////////////
-    ///////////////////////////// fn: compare ////////////////////////////
-    //////////////////////////////////////////////////////////////////////
-    #pragma region compare
-
-private:
-
-    static constexpr Order compare(Slice left, Slice right)
-    {
-        ulong min_len = (left.len < right.len? left.len: right.len);
-
-        if consteval
-        {
-            for (ulong i = 0; i < min_len; i++)
-            {
-                if (left._data[i] < right._data[i])
-                    return Order::Less;
-                else if (left._data[i] > right._data[i])
-                    return Order::Greater;
-            }
-        }
-        else
-        {
-            int first_diff = std::memcmp(left._data, right._data, min_len);
-            if (first_diff < 0)
-                return Order::Less;
-            else if (first_diff > 0)
-                return Order::Greater;
-        }
-
-        if (left.len < right.len)
-            return Order::Less;
-        else if (left.len > right.len)
-            return Order::Greater;
-        else
-            return Order::Equal;
-    }
-
-public:
-
-    constexpr bool operator==(Slice other) const
-    {
-        return compare(*this, other) == Order::Equal;
-    }
-
-    constexpr bool operator!=(Slice other) const
-    {
-        return compare(*this, other) != Order::Equal;
-    }
-
-    constexpr bool operator<(Slice other) const
-    {
-        return compare(*this, other) == Order::Less;
-    }
-
-    constexpr bool operator>(Slice other) const
-    {
-        return compare(*this, other) == Order::Greater;
-    }
-
-    constexpr bool operator<=(Slice other) const
-    {
-        return compare(*this, other) != Order::Greater;
-    }
-
-    constexpr bool operator>=(Slice other) const
-    {
-        return compare(*this, other) != Order::Less;
-    }
-
-    //////////////////////////////////////////////////////////////////////
     ///////////////////////////// fn: slice //////////////////////////////
     //////////////////////////////////////////////////////////////////////
+    #pragma region slice
 
     constexpr Slice slice(ulong start, ulong max_len) const 
     {
@@ -438,9 +369,65 @@ public:
 
     static constexpr Order compare(Slice left, Slice right)
     {
-        return Slice::compare(left, right);
+        ulong min_len = (left.len < right.len? left.len: right.len);
+
+        if consteval
+        {
+            for (ulong i = 0; i < min_len; i++)
+            {
+                if (left._data[i] < right._data[i])
+                    return Order::Less;
+                else if (left._data[i] > right._data[i])
+                    return Order::Greater;
+            }
+        }
+        else
+        {
+            int first_diff = std::memcmp(left._data, right._data, min_len);
+            if (first_diff < 0)
+                return Order::Less;
+            else if (first_diff > 0)
+                return Order::Greater;
+        }
+
+        if (left.len < right.len)
+            return Order::Less;
+        else if (left.len > right.len)
+            return Order::Greater;
+        else
+            return Order::Equal;
     }
 };
+
+constexpr bool operator==(Slice left, Slice right)
+{
+    return Comparator<Slice, Ordering::Order>::compare(left, right) == Order::Equal;
+}
+
+constexpr bool operator!=(Slice left, Slice right)
+{
+    return Comparator<Slice, Ordering::Order>::compare(left, right) != Order::Equal;
+}
+
+constexpr bool operator<(Slice left, Slice right)
+{
+    return Comparator<Slice, Ordering::Order>::compare(left, right) == Order::Less;
+}
+
+constexpr bool operator>(Slice left, Slice right)
+{
+    return Comparator<Slice, Ordering::Order>::compare(left, right) == Order::Greater;
+}
+
+constexpr bool operator<=(Slice left, Slice right)
+{
+    return Comparator<Slice, Ordering::Order>::compare(left, right) != Order::Greater;
+}
+
+constexpr bool operator>=(Slice left, Slice right)
+{
+    return Comparator<Slice, Ordering::Order>::compare(left, right) != Order::Less;
+}
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////////// class: String ///////////////////////////
@@ -1457,41 +1444,6 @@ public:
     {
         return IR.write_into(*this, arr.data(), arr.size());
     }
-
-    //////////////////////////////////////////////////////////////////////
-    ///////////////////////////// fn: compare ////////////////////////////
-    //////////////////////////////////////////////////////////////////////
-    #pragma region compare
-
-    constexpr bool operator==(Slice other) const
-    {
-        return Slice::compare(as_slice(), other) == Order::Equal;
-    }
-
-    constexpr bool operator!=(Slice other) const
-    {
-        return Slice::compare(as_slice(), other) != Order::Equal;
-    }
-
-    constexpr bool operator<(Slice other) const
-    {
-        return Slice::compare(as_slice(), other) == Order::Less;
-    }
-
-    constexpr bool operator>(Slice other) const
-    {
-        return Slice::compare(as_slice(), other) == Order::Greater;
-    }
-
-    constexpr bool operator<=(Slice other) const
-    {
-        return Slice::compare(as_slice(), other) != Order::Greater;
-    }
-
-    constexpr bool operator>=(Slice other) const
-    {
-        return Slice::compare(as_slice(), other) != Order::Less;
-    }
 };
 
 template <>
@@ -1500,7 +1452,7 @@ public:
 
     static constexpr Order compare(String const& left, String const& right)
     {
-        return Slice::compare(left.as_slice(), right.as_slice());
+        return Comparator<Slice, Ordering::Order>::compare(left, right);
     }
 };
 
@@ -1532,7 +1484,6 @@ _MNC_END
 
 #undef _MNC_BEGIN
 #undef _MNC_END
-#undef _GLOBAL_EXPORT
 #undef _MNC
 #undef _LVALUE
 #undef _RVALUE

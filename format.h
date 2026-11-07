@@ -397,34 +397,6 @@ private:
         static void FORMATTER_SLICE_Invalid_Format_Parameter_Syntax() {}
     };
 
-    struct helper
-    {
-        template <ulong N>
-        static constexpr bool same_str(char const* s, ulong len, char const(&other)[N])
-        {
-            if (len != N - 1)
-                return false;
-
-            for (ulong i = 0; i < len; i++)
-            {
-                if (s[i] != other[i])
-                    return false;
-            }
-
-            return true;
-        }
-
-        static constexpr bool is_empty_str(char const* s, ulong len)
-        {
-            for (ulong i = 0; i < len; i++)
-            {
-                if (s[i] != ' ')
-                    return false;
-            }
-            return true;
-        }
-    };
-
     enum class Mode: byte {
         Normal,
         Debug
@@ -438,64 +410,37 @@ public:
 
     consteval Formatter(): mode(Mode::Normal) {}
 
-    consteval Formatter(char const* params, ulong len): Formatter()
+    consteval Formatter(char const* params, ulong len): mode(Mode::Normal)
     {
         // VALID PARAMETERS:
         // .normal .debug
 
-        if (helper::is_empty_str(params, len))
+        Slice s = Slice::from_cstr(params, len);
+        char const* p = s.begin();
+        char const* end = s.end();
+
+        auto skip_spaces = [&]() {
+            while (p < end && *p == ' ') { ++p; }
+        };
+
+        skip_spaces();
+        if (p == end)
             return;
+        
+        if (*p != '.')
+            __throw::FORMATTER_SLICE_Invalid_Format_Parameter_Syntax();
 
-        char const* start = params;
+        char const* checkpoint = p; 
+        while (p < end && *p != ' ') { ++p; }
+        Slice parameter = s.slice(checkpoint - s.begin(), p - checkpoint);
 
-        // find (.)
-        {
-            while (start < params + len)
-            {
-                if (*start == ' ')
-                {
-                    start++;
-                    continue;
-                }
-                    
-                if (*start == '.')
-                {
-                    start++;
-                    break;
-                }
+        skip_spaces();
+        if (p != end)
+            __throw::FORMATTER_SLICE_Invalid_Format_Parameter_Syntax();
 
-                __throw::FORMATTER_SLICE_Invalid_Format_Parameter_Syntax();
-            }
-        }
-
-        // parse params
-        {
-            char const* sstart = start;
-            ulong slen = 0;
-            
-            while (start < params + len)
-            {
-                if (*start == ' ')
-                    break;
-                else
-                    slen++;
-                start++;
-            }
-
-            if (slen == 0) // just .
-                __throw::FORMATTER_SLICE_Invalid_Format_Parameter_Syntax();
-
-            while (start < params + len)
-            {
-                if (*start != ' ')  // has trailling
-                    __throw::FORMATTER_SLICE_Invalid_Format_Parameter_Syntax();
-                start++;
-            };
-
-            if (helper::same_str(sstart, slen, "normal"))     mode = Mode::Normal;
-            else if (helper::same_str(sstart, slen, "debug")) mode = Mode::Debug;
-            else __throw::FORMATTER_SLICE_Invalid_Format_Parameter_Syntax();
-        }
+        if (parameter == ".normal") mode = Mode::Normal;
+        else if (parameter == ".debug") mode = Mode::Debug;
+        else __throw::FORMATTER_SLICE_Invalid_Format_Parameter_Syntax();
     }
 
     template <ulong N>
@@ -681,35 +626,6 @@ private:
     struct __throw
     {
         static void FORMATTER_INT_Invalid_Format_Parameter_Syntax() {}
-        //static void FORMATTER_INT_Unknown_Integer_Format() {}
-    };
-
-    struct helper
-    {
-        template <ulong N>
-        static constexpr bool same_str(char const* s, ulong len, char const(&other)[N])
-        {
-            if (len != N - 1)
-                return false;
-
-            for (ulong i = 0; i < len; i++)
-            {
-                if (s[i] != other[i])
-                    return false;
-            }
-
-            return true;
-        }
-
-        static constexpr bool is_empty_str(char const* s, ulong len)
-        {
-            for (ulong i = 0; i < len; i++)
-            {
-                if (s[i] != ' ')
-                    return false;
-            }
-            return true;
-        }
     };
 
     enum class Mode: byte { 
@@ -729,68 +645,41 @@ public:
 
     consteval Formatter(): mode(Mode::Decimal) {}
 
-    consteval Formatter(char const* params, ulong len): Formatter()
+    consteval Formatter(char const* params, ulong len): mode(Mode::Decimal)
     {
         // VALID PARAMETERS:
         // .dec .bin .hex .Hex .oct
 
-        if (helper::is_empty_str(params, len))
+        Slice s = Slice::from_cstr(params, len);
+        char const* p = s.begin();
+        char const* end = s.end();
+
+        auto skip_spaces = [&]() {
+            while (p < end && *p == ' ') { ++p; }
+        };
+
+        skip_spaces();
+        if (p == end) 
             return;
+        
+        if (*p != '.')
+            __throw::FORMATTER_INT_Invalid_Format_Parameter_Syntax();
 
-        char const* start = params;
+        char const* checkpoint = p; 
+        while (p < end && *p != ' ') { ++p; }
+        Slice parameter = s.slice(checkpoint - s.begin(), p - checkpoint);
 
-        // find (.)
-        {
-            while (start < params + len)
-            {
-                if (*start == ' ')
-                {
-                    start++;
-                    continue;
-                }
-                    
-                if (*start == '.')
-                {
-                    start++;
-                    break;
-                }
+        skip_spaces();
+        if (p != end)
+            __throw::FORMATTER_INT_Invalid_Format_Parameter_Syntax();
 
-                __throw::FORMATTER_INT_Invalid_Format_Parameter_Syntax();
-            }
-        }
-
-        // parse params
-        {
-            char const* sstart = start;
-            ulong slen = 0;
-            
-            while (start < params + len)
-            {
-                if (*start == ' ')
-                    break;
-                else
-                    slen++;
-                start++;
-            }
-
-            if (slen == 0) // just .
-                __throw::FORMATTER_INT_Invalid_Format_Parameter_Syntax();
-
-            while (start < params + len)
-            {
-                if (*start != ' ')  // has trailling
-                    __throw::FORMATTER_INT_Invalid_Format_Parameter_Syntax();
-                start++;
-            };
-
-            if (helper::same_str(sstart, slen, "dec"))       mode = Mode::Decimal;
-            else if (helper::same_str(sstart, slen, "+dec")) mode = Mode::SignedDecimal;
-            else if (helper::same_str(sstart, slen, "bin"))  mode = Mode::Binary;
-            else if (helper::same_str(sstart, slen, "hex"))  mode = Mode::Hexadecimal;
-            else if (helper::same_str(sstart, slen, "Hex"))  mode = Mode::CapHexadecimal;
-            else if (helper::same_str(sstart, slen, "oct"))  mode = Mode::Octal;
-            else __throw::FORMATTER_INT_Invalid_Format_Parameter_Syntax();
-        }
+        if (parameter == ".dec")       mode = Mode::Decimal;
+        else if (parameter == ".+dec") mode = Mode::SignedDecimal;
+        else if (parameter == ".bin")  mode = Mode::Binary;
+        else if (parameter == ".hex")  mode = Mode::Hexadecimal;
+        else if (parameter == ".Hex")  mode = Mode::CapHexadecimal;
+        else if (parameter == ".oct")  mode = Mode::Octal;
+        else __throw::FORMATTER_INT_Invalid_Format_Parameter_Syntax();
     }
 
     template <ulong N>
@@ -803,6 +692,8 @@ public:
         switch (mode)
         {
             case Mode::Decimal:
+            [[fallthrough]];
+
             case Mode::SignedDecimal:
             {
                 if (value == 0)
@@ -851,6 +742,7 @@ public:
 
                 return buffer.write(buffer_temp + i, 30 - i, IR);
             }
+
             case Mode::Binary:
             {
                 if (value == 0)
@@ -870,16 +762,32 @@ public:
 
                 return buffer.write(buffer_temp + i, 80 - i, IR);
             }
+
             case Mode::Hexadecimal:
+            [[fallthrough]];
+
             case Mode::CapHexadecimal:
             {
                 if (value == 0)
                     return buffer.write("0x0", IR);
 
-                static constexpr char hex[] = "0123456789abcdef";
-                static constexpr char Hex[] = "0123456789ABCDEF";
-                char const* const conv = (mode == Mode::Hexadecimal? hex: Hex);
+                static constexpr char hex[16] = 
+                {
+                    '0','1','2','3',
+                    '4','5','6','7',
+                    '8','9','a','b',
+                    'c','d','e','f'
+                };
 
+                static constexpr char Hex[16] = 
+                {
+                    '0','1','2','3',
+                    '4','5','6','7',
+                    '8','9','A','B',
+                    'C','D','E','F'
+                };
+
+                char const* const conv = (mode == Mode::Hexadecimal? hex: Hex);
                 char buffer_temp[30];
                 int i = 30;
 
@@ -894,6 +802,7 @@ public:
 
                 return buffer.write(buffer_temp + i, 30 - i, IR);
             }
+
             case Mode::Octal:
             {
                 if (value == 0)
@@ -932,68 +841,16 @@ private:
     {
         static void FORMATTER_FLOAT_Invalid_Format_Syntax() {}
         static void FORMATTER_FLOAT_Floating_Point_Precision_Too_Large() {}
-        //static void FORMATTER_FLOAT_Floating_Point_Precision_Cannot_Be_Zero() {}
-    };
-
-    struct helper
-    {
-        template <ulong N>
-        static constexpr bool same_str(char const* s, ulong len, char const(&other)[N])
-        {
-            if (len != N - 1)
-                return false;
-
-            for (ulong i = 0; i < len; i++)
-            {
-                if (s[i] != other[i])
-                    return false;
-            }
-
-            return true;
-        }
-
-        static constexpr Option<byte> parse(char const* s, ulong len)
-        {
-            if (len == 0)
-                return { False{} };
-
-            byte value = 0;
-            for (ulong i = 0; i < len; i++)
-            {
-                if (s[i] < '0' || '9' < s[i]) // non-digit chars
-                    return { False{} };
-
-                constexpr byte BYTE_MAX = 0xff;
-                byte digit = s[i] - '0';
-
-                // overflow check
-                if (value > (BYTE_MAX - digit) / 10u)
-                    return { False{} };
-
-                value = value * 10 + digit;
-            }
-            
-            return { True{}, value };
-        }
-
-        static constexpr bool is_empty_str(char const* s, ulong len)
-        {
-            for (ulong i = 0; i < len; i++)
-            {
-                if (s[i] != ' ')
-                    return false;
-            }
-            return true;
-        }
     };
 
     enum class Mode: byte {
         General,
         Fixed,
-        Scientific
+        Scientific,
+        HexFloat
     };
 
-    static constexpr byte PRECISION_UPPER_LIMIT = 50;
+    static constexpr byte PRECISION_LIMIT = 50;
 
 private:
 
@@ -1004,155 +861,68 @@ public:
 
     consteval Formatter(): precision(2), mode(Mode::General) {}
 
-    consteval Formatter(char const* params, ulong len): Formatter()
+    consteval Formatter(char const* params, ulong len): precision(2), mode(Mode::General)
     {
         // VALID PARAMETERS:
         // .g .f .e
         // .012
         // .012g .012f .012e
 
-        if (helper::is_empty_str(params, len))
+        Slice s = Slice::from_cstr(params, len);
+        char const* p = s.begin();
+        char const* end = s.end();
+
+        auto skip_spaces = [&]() {
+            while (p < end && *p == ' ') { ++p; }
+        };
+
+        skip_spaces();
+        if (p == end) 
             return;
+        
+        if (*p != '.')
+            __throw::FORMATTER_FLOAT_Invalid_Format_Syntax();
 
-        char const* start = params;
+        ++p;
 
-        // find (.)
+        Slice num;
+        if ('0' <= *p && *p <= '9')
         {
-            while (start < params + len)
+            char const* checkpoint = p;
+            while ('0' <= *p && *p <= '9') { ++p; }
+            num = s.slice(checkpoint - s.begin(), p - checkpoint);
+        }
+        
+        if ('a' <= *p && *p <= 'z' || 'A' <= *p && *p <= 'Z')
+        {
+            switch (*p)
             {
-                if (*start == '.')
-                {
-                    start++;
-                    break;
-                }
-
-                if (*start == ' ')
-                {
-                    start++;
-                    continue;
-                }
-                    
-                __throw::FORMATTER_FLOAT_Invalid_Format_Syntax();
+                case 'g': mode = Mode::General;     ++p; break;
+                case 'f': mode = Mode::Fixed;       ++p; break;
+                case 'e': mode = Mode::Scientific;  ++p; break;
+                case 'a': mode = Mode::HexFloat;    ++p; break;
             }
         }
 
-        // parse
+        skip_spaces();
+        if (p != end)
+            __throw::FORMATTER_FLOAT_Invalid_Format_Syntax();
+
+        precision = 0;
+        for (ulong i = 0; i < num.size(); i++)
         {
-            // let checkpoint = start
+            constexpr byte BYTE_MAX = 0xff;
+            byte digit = num[i] - '0';
 
-            // for numbers:
-            char const* nstart = start;  // checkpoint
-            ulong nlen = 0;
-
-            // for chars:
-            char const* cstart = start;  // checkpoint
-            ulong clen = 0;
-
-            enum class State { None, GetN, GetC } state = State::None;
-
-            // only 3 cases:
-            // None -> GetN -> GetC -> end  // nstart = checkpoint ; cstart = nstart + nlen
-            // None -> GetN -> end          // nstart = checkpoint
-            // None -> GetC -> end          // cstart = checkpoint
-
-            while (start < params + len)
-            {
-                if (state == State::None)
-                {
-                    if ('0' <= *start && *start <= '9')
-                    {
-                        nlen++;
-                        start++;
-                        state = State::GetN;
-                    }
-                    else if (('a' <= *start && *start <= 'z') || ('A' <= *start && *start <= 'Z'))
-                    {
-                        clen++;
-                        start++;
-                        state = State::GetC;
-                    }
-                    else if (*start == ' ')
-                    {
-                        break;
-                    }
-                    else
-                    {
-                        __throw::FORMATTER_FLOAT_Invalid_Format_Syntax();
-                    }
-                }
-                else if (state == State::GetN)
-                {
-                    if ('0' <= *start && *start <= '9')
-                    {
-                        nlen++;
-                        start++;
-                    }
-                    else if (('a' <= *start && *start <= 'z') || ('A' <= *start && *start <= 'Z'))
-                    {
-                        cstart = start;
-                        clen++;
-                        start++;
-                        state = State::GetC;
-                    }
-                    else if (*start == ' ')  // or end of string
-                    {
-                        break;
-                    }
-                    else
-                    {
-                        __throw::FORMATTER_FLOAT_Invalid_Format_Syntax();
-                    }
-                }
-                else if (state == State::GetC)
-                {
-                    if (('a' <= *start && *start <= 'z') || ('A' <= *start && *start <= 'Z'))
-                    {
-                        clen++;
-                        start++;
-                    }
-                    else if (*start == ' ')   // or end of string
-                    {
-                        break;
-                    }
-                    else
-                    {
-                        __throw::FORMATTER_FLOAT_Invalid_Format_Syntax();
-                    }
-                }
-            }
-
-            if (nlen == 0 && clen == 0) // just .
-                __throw::FORMATTER_FLOAT_Invalid_Format_Syntax();
-
-            while (start < params + len)
-            {
-                if (*start != ' ') // has trailling
-                    __throw::FORMATTER_FLOAT_Invalid_Format_Syntax();
-                start++;
-            };
-
-            if (nlen > 0)
-            {
-                precision = helper::parse(nstart, nlen).value_or(255);
-                // False{} means overflow
-            }
-
-            if (clen > 0)
-            {
-                if (helper::same_str(cstart, clen, "g")) mode = Mode::General;
-                else if (helper::same_str(cstart, clen, "f")) mode = Mode::Fixed;
-                else if (helper::same_str(cstart, clen, "e")) mode = Mode::Scientific;
-                else __throw::FORMATTER_FLOAT_Invalid_Format_Syntax();
-            }
-        }
-
-        // check boundaries
-        {
-            if (precision > PRECISION_UPPER_LIMIT)
+            // overflow check
+            if (precision > (BYTE_MAX - digit) / 10u)
                 __throw::FORMATTER_FLOAT_Floating_Point_Precision_Too_Large();
-            //if (precision == 0)
-                //__throw::FORMATTER_FLOAT_Floating_Point_Precision_Cannot_Be_Zero();
+
+            precision = precision * 10 + digit;
         }
+
+        if (precision > PRECISION_LIMIT)
+            __throw::FORMATTER_FLOAT_Floating_Point_Precision_Too_Large();
     }
 
     template <ulong N>
@@ -1162,7 +932,7 @@ public:
     requires (Is_Buffer<Buffer>)
     constexpr Result<void, FormatError> format(Buffer& buffer, T value, FormatIR IR = FormatIR {}) const
     {
-        char buffer_temp[PRECISION_UPPER_LIMIT + 30];
+        char buffer_temp[PRECISION_LIMIT + 30];
 
         std::chars_format std_mode;
         switch (mode)
@@ -1170,6 +940,7 @@ public:
             case Mode::General:     std_mode = std::chars_format::general;     break;
             case Mode::Fixed:       std_mode = std::chars_format::fixed;       break;
             case Mode::Scientific:  std_mode = std::chars_format::scientific;  break;
+            case Mode::HexFloat:    std_mode = std::chars_format::hex;         break;
         }
 
         auto res = std::to_chars(
@@ -1192,43 +963,6 @@ public:
         }
 
         return buffer.write(buffer_temp, res.ptr - buffer_temp, IR);
-    }
-};
-
-template <typename T>
-class Formatter<T*> {
-public:
-
-    template <typename Buffer>
-    requires (Is_Buffer<Buffer>)
-    constexpr Result<void, FormatError> format(Buffer& buffer, T const* value, FormatIR IR = FormatIR {}) const
-    {
-        if (value == nullptr)
-            return buffer.write("0000000000000000", IR);
-
-        static constexpr char hex[16] = 
-        {
-            '0','1','2','3',
-            '4','5','6','7',
-            '8','9','A','B',
-            'C','D','E','F'
-        };
-
-        char buffer_temp[16];
-        int i = 15;
-
-        ulong val = (ulong)value;
-        while (val)
-        {
-            buffer_temp[i--] = hex[val & 0xf];
-            val >>= 4;
-        }
-        while (i >= 0)
-        {
-            buffer_temp[i--] = '0';
-        }
-
-        return buffer.write(buffer_temp, 16, IR);
     }
 };
 
@@ -1259,15 +993,148 @@ public:
     }
 };
 
-template <>
-class Formatter<decltype(nullptr)> {
+template <typename T>
+class Formatter<T*> {
+private:
+
+    struct __throw
+    {
+        static void FORMATTER_PTR_Invalid_Format_Parameter_Syntax() {}
+    };
+
+    enum class Mode: byte {
+        Standard,
+        MSVC
+    };
+
+private:
+
+    Mode mode;
+
+public:
+
+    consteval Formatter(): mode(Mode::Standard) {}
+
+    consteval Formatter(char const* params, ulong len): mode(Mode::Standard)
+    {
+        // VALID PARAMETERS:
+        // .std .msvc
+
+        Slice s = Slice::from_cstr(params, len);
+        char const* p = s.begin();
+        char const* end = s.end();
+
+        auto skip_spaces = [&]() {
+            while (p < end && *p == ' ') { ++p; }
+        };
+
+        skip_spaces();
+        if (p == end) 
+            return;
+        
+        if (*p != '.')
+            __throw::FORMATTER_PTR_Invalid_Format_Parameter_Syntax();
+
+        char const* checkpoint = p; 
+        while (p < end && *p != ' ') { ++p; }
+        Slice parameter = s.slice(checkpoint - s.begin(), p - checkpoint);
+
+        skip_spaces();
+        if (p != end)
+            __throw::FORMATTER_PTR_Invalid_Format_Parameter_Syntax();
+
+        if (parameter == ".std")        mode = Mode::Standard;
+        else if (parameter == ".msvc")  mode = Mode::MSVC;
+        else __throw::FORMATTER_PTR_Invalid_Format_Parameter_Syntax();
+    }
+
 public:
 
     template <typename Buffer>
     requires (Is_Buffer<Buffer>)
-    constexpr Result<void, FormatError> format(Buffer& buffer, decltype(nullptr), FormatIR IR = FormatIR {}) const
+    constexpr Result<void, FormatError> format(Buffer& buffer, T const* value, FormatIR IR = FormatIR {}) const
     {
-        return buffer.write("0000000000000000", IR);
+        switch (mode)
+        {
+            case Mode::Standard:
+            {
+                if (value == nullptr)
+                    return buffer.write("0x0", IR);
+
+                static constexpr char hex[16] = 
+                {
+                    '0','1','2','3',
+                    '4','5','6','7',
+                    '8','9','a','b',
+                    'c','d','e','f'
+                };
+
+                char buffer_temp[30];
+                int i = 30;
+
+                ulong val = (ulong)value;
+                while (val > 0)
+                {
+                    buffer_temp[--i] = hex[val & 0b1111];
+                    val >>= 4;
+                }
+                buffer_temp[--i] = 'x';
+                buffer_temp[--i] = '0';
+
+                return buffer.write(buffer_temp + i, 30 - i, IR);
+            }
+
+            case Mode::MSVC:
+            {
+                if (value == nullptr)
+                    return buffer.write("0000000000000000", IR);
+
+                static constexpr char Hex[16] = 
+                {
+                    '0','1','2','3',
+                    '4','5','6','7',
+                    '8','9','A','B',
+                    'C','D','E','F'
+                };
+
+                char buffer_temp[16];
+                int i = 15;
+
+                ulong val = (ulong)value;
+                while (val)
+                {
+                    buffer_temp[i--] = Hex[val & 0b1111];
+                    val >>= 4;
+                }
+                while (i >= 0)
+                {
+                    buffer_temp[i--] = '0';
+                }
+
+                return buffer.write(buffer_temp, 16, IR);
+            }
+        }
+    }
+};
+
+template <>
+class Formatter<std::nullptr_t> {
+private:
+
+    Formatter<void*> base;
+
+public:
+    consteval Formatter() {}
+    consteval Formatter(char const* params, ulong len): base(params, len) {}
+
+    template <ulong N>
+    consteval Formatter(char const (&params)[N]): base(params, N - 1) {}
+
+    template <typename Buffer>
+    requires (Is_Buffer<Buffer>)
+    constexpr Result<void, FormatError> format(Buffer& buffer, std::nullptr_t, FormatIR IR = FormatIR {}) const
+    {
+        return base.format(buffer, nullptr);
     }
 };
 
